@@ -77,7 +77,7 @@ fn main() {
         .block_on(async move {
             loop {
                 render_vdom.traverse_tree(render_vdom.get_root_id(), &|node| {
-                    println!("YOOO {:?} {:?}", node.tag, node.attrs);
+                    // println!("YOOO {:?} {:?}", node.tag, node.attrs);
                 });
                 vdom.wait_for_work().await;
 
