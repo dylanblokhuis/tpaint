@@ -1,4 +1,4 @@
-use std::{rc::Rc, collections::HashSet};
+use std::rc::Rc;
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
@@ -6,7 +6,7 @@ use dioxus::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
-use smallvec::{SmallVec, smallvec};
+use smallvec::{smallvec, SmallVec};
 
 new_key_type! { pub struct NodeId; }
 
@@ -37,7 +37,7 @@ impl VDom {
         let mut element_id_mapping = FxHashMap::default();
         element_id_mapping.insert(ElementId(0), root_id);
 
-        let mut common_tags_and_attr_keys = HashSet::default();
+        let mut common_tags_and_attr_keys = FxHashSet::default();
         common_tags_and_attr_keys.insert("view".into());
         common_tags_and_attr_keys.insert("class".into());
         common_tags_and_attr_keys.insert("value".into());
@@ -51,12 +51,17 @@ impl VDom {
         }
     }
 
+    /// Splits the collection into two at the given index.
+    ///
+    /// Returns a newly allocated vector containing the elements in the range
+    /// `[at, len)`. After the call, the original vector will be left containing
+    /// the elements `[0, at)` with its previous capacity unchanged.
+    ///
     pub fn split_stack(&mut self, at: usize) -> SmallVec<[NodeId; 32]> {
-        println!("is stack spilled? {}", self.stack.spilled());
         if at > self.stack.len() {
             let len = self.stack.len();
             panic!("`at` split index (is {at}) should be <= len (is {len})");
-        }   
+        }
 
         if at == 0 {
             let cap = self.stack.capacity();
@@ -65,7 +70,6 @@ impl VDom {
                 SmallVec::<[NodeId; 32]>::with_capacity(cap),
             );
         }
-
 
         let other_len = self.stack.len() - at;
         let mut other = SmallVec::<[NodeId; 32]>::with_capacity(other_len);
