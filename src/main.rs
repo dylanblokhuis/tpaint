@@ -1,4 +1,6 @@
 #![allow(non_snake_case)]
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
 
 use dioxus::prelude::*;
 
@@ -7,20 +9,25 @@ use crate::hooks::{animation::Animation, use_animation};
 mod hooks;
 mod vdom;
 
+mod dioxus_elements {
+    pub type AttributeDescription = (&'static str, Option<&'static str>, bool);
+
+    pub struct view;
+
+    impl view {
+        pub const TAG_NAME: &'static str = "view";
+        pub const NAME_SPACE: Option<&'static str> = None;
+        #[allow(non_upper_case_globals)]
+        pub const class: AttributeDescription = ("", None, false);
+    }
+}
+
 #[derive(PartialEq, Props)]
 struct YoProps {
     progress: f64,
 }
 
 fn main() {
-    fn Yo(cx: Scope<YoProps>) -> Element {
-        render!(
-            main {
-                h2 { "Yo: {cx.props.progress}" }
-            }
-        )
-    }
-
     fn app(cx: Scope) -> Element {
         let animation = use_animation(cx, 0.0);
         let progress = animation.value();
@@ -37,18 +44,18 @@ fn main() {
         });
 
         render!(
-            div {
+            view {
                 class: "w-{progress} h-200",
-                h1 { "Hello World" }
-                p { "This is a paragraph" }
-                Yo {
-                    progress: progress,
-                }
-                button {
-                    onclick: move |_| {
-                        println!("clicked");
-                    },
-                }
+                // h1 { "Hello World" }
+                // p { "This is a paragraph" }
+                // Yo {
+                //     progress: progress,
+                // }
+                // button {
+                //     onclick: move |_| {
+                //         println!("clicked");
+                //     },
+                // }
             }
         )
     }
@@ -70,15 +77,12 @@ fn main() {
         .block_on(async move {
             loop {
                 render_vdom.traverse_tree(render_vdom.get_root_id(), &|node| {
-                    println!("YOOO {:?}", node.tag);
+                    println!("YOOO {:?} {:?}", node.tag, node.attrs);
                 });
                 vdom.wait_for_work().await;
 
                 let mutations = vdom.render_immediate();
-                // dbg!(&mutations);
                 render_vdom.apply_mutations(mutations);
-
-                // dbg!(render_vdom.nodes.len());
             }
         });
 }

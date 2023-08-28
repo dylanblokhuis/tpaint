@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = "0.4.0"
+dioxus = { version  ="0.4.0", default-features = false, features = ["macro", "hooks"] }
 rustc-hash = "1.1.0"
 slab = "0.4.9"
 slotmap = "1.0.6"
