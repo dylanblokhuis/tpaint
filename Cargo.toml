@@ -8,9 +8,12 @@ edition = "2021"
 [dependencies]
 dioxus = { version = "0.4.0", default-features = false, features = ["macro", "hooks"] }
 epaint = { version = "0.22.0", features = ["bytemuck"] }
+log = "0.4.20"
 rustc-hash = "1.1.0"
+simple_logger = "4.2.0"
 slotmap = "1.0.6"
 smallvec = "1.11.0"
-tokio = { version = "1.32.0", features = ["time", "rt"] }
+tao = "0.22.2"
+tokio = { version = "1.32.0", features = ["time", "rt", "sync", "macros"] }
 tween = "2.0.1"
 uuid = { version = "1.4.1", features = ["v4"] }

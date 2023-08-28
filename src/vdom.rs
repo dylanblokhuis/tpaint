@@ -1,12 +1,15 @@
-use std::rc::Rc;
+use std::{any::Any, ops::Deref, rc::Rc, sync::Arc};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
-    prelude::{TemplateAttribute, TemplateNode},
+    prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
+use tao::dpi::PhysicalSize;
+
+use crate::dioxus_elements::events::MouseData;
 
 new_key_type! { pub struct NodeId; }
 
@@ -117,7 +120,7 @@ impl VDom {
                     let new_nodes = self.split_stack(self.stack.len() - m);
                     let old_node_id = self.load_path(path);
                     let node = self.nodes.get_mut(old_node_id).unwrap();
-                    node.children = new_nodes.into();
+                    node.children = new_nodes;
                 }
                 dioxus::core::Mutation::AppendChildren { m, id } => {
                     let children = self.split_stack(self.stack.len() - m);
@@ -167,12 +170,12 @@ impl VDom {
 
     pub fn get_tag_or_attr_key(&mut self, key: &str) -> Rc<str> {
         if let Some(s) = self.common_tags_and_attr_keys.get(key) {
-            return s.clone();
+            s.clone()
         } else {
             let key: Rc<str> = key.into();
             let r = key.clone();
             self.common_tags_and_attr_keys.insert(key);
-            return r;
+            r
         }
     }
 
@@ -237,5 +240,113 @@ impl VDom {
         for child in parent.children.iter() {
             self.traverse_tree(*child, callback);
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventData {
+    MouseData(MouseData),
+}
+
+impl EventData {
+    pub fn into_any(self) -> Rc<dyn Any> {
+        match self {
+            EventData::MouseData(data) => Rc::new(data),
+            // EventData::Keyboard(data) => Rc::new(data),
+            // EventData::Focus(data) => Rc::new(data),
+            // EventData::Wheel(data) => Rc::new(data),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DomEvent {
+    pub name: &'static str,
+    pub data: Arc<EventData>,
+    pub element_id: ElementId,
+    pub bubbles: bool,
+}
+
+#[derive(Default)]
+pub struct Renderer {
+    pub pixels_per_point: f32,
+    pub window_size: PhysicalSize<u32>,
+}
+
+pub struct DomEventLoop {
+    pub dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
+    pub events: Vec<DomEvent>,
+
+    pub renderer: Renderer,
+}
+
+impl DomEventLoop {
+    pub fn spawn(app: fn(Scope) -> Element) -> DomEventLoop {
+        let (dom_event_sender, mut dom_event_receiver) =
+            tokio::sync::mpsc::unbounded_channel::<DomEvent>();
+
+        std::thread::spawn(move || {
+            let mut vdom = VirtualDom::new(app);
+            let mutations = vdom.rebuild();
+            dbg!(&mutations);
+            let mut render_vdom = VDom::new();
+            render_vdom.apply_mutations(mutations);
+
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    loop {
+                        tokio::select! {
+                            _ = vdom.wait_for_work() => {},
+                            Some(event) = dom_event_receiver.recv() => {
+                                let DomEvent { name, data, element_id, bubbles } = event;
+                                vdom.handle_event(name, data.deref().clone().into_any(), element_id, bubbles);
+                            }
+                        }
+
+                        let mutations = vdom.render_immediate();
+                        render_vdom.apply_mutations(mutations);
+                    }
+                });
+        });
+
+        DomEventLoop {
+            dom_event_sender,
+            renderer: Renderer::default(),
+            events: vec![],
+        }
+    }
+
+    /// bool: whether the window needs to be redrawn
+    pub fn on_window_event(&mut self, event: &tao::event::WindowEvent<'_>) -> bool {
+        use tao::event::WindowEvent;
+        match event {
+            WindowEvent::ScaleFactorChanged {
+                scale_factor,
+                new_inner_size,
+            } => {
+                self.renderer.pixels_per_point = *scale_factor as f32;
+                self.renderer.window_size = **new_inner_size;
+                true
+            }
+
+            // WindowEvent::MouseInput { state, button, .. } => {}
+            _ => false,
+        }
+    }
+
+    pub fn on_mouse_input(
+        &mut self,
+        state: tao::event::ElementState,
+        button: tao::event::MouseButton,
+    ) {
+
+        // if state == tao::event::ElementState::Pressed {
+        //     self.events.push(DomEvent { name: "mousedown", data: , element_id: (), bubbles: () })
+        // }
+
+        // self.events.push(DomEvent { name: "()", data: (), element_id: (), bubbles: () })
     }
 }
