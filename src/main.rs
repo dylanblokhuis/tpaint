@@ -45,7 +45,7 @@ fn main() {
 
         render!(
             view {
-                class: "w-{progress} h-200",
+                class: "w-{progress} h-200 bg-red-500",
                 // h1 { "Hello World" }
                 // p { "This is a paragraph" }
                 // Yo {
