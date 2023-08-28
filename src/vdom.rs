@@ -1,30 +1,33 @@
+use std::{rc::Rc, collections::HashSet};
+
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use rustc_hash::FxHashMap;
-use slotmap::{new_key_type, DenseSlotMap};
+use rustc_hash::{FxHashMap, FxHashSet};
+use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{SmallVec, smallvec};
 
 new_key_type! { pub struct NodeId; }
 
 #[derive(Debug)]
 pub struct Node {
-    pub tag: String,
-    pub attrs: FxHashMap<String, String>,
+    pub tag: Rc<str>,
+    pub attrs: FxHashMap<Rc<str>, String>,
     pub children: SmallVec<[NodeId; 32]>,
 }
 
 pub struct VDom {
-    pub nodes: DenseSlotMap<NodeId, Node>,
+    pub nodes: HopSlotMap<NodeId, Node>,
     templates: FxHashMap<String, SmallVec<[NodeId; 32]>>,
     stack: SmallVec<[NodeId; 32]>,
     element_id_mapping: FxHashMap<ElementId, NodeId>,
+    common_tags_and_attr_keys: FxHashSet<Rc<str>>,
 }
 
 impl VDom {
     pub fn new() -> VDom {
-        let mut nodes = DenseSlotMap::with_key();
+        let mut nodes = HopSlotMap::with_key();
         let root_id = nodes.insert(Node {
             tag: "root".into(),
             attrs: FxHashMap::default(),
@@ -34,11 +37,17 @@ impl VDom {
         let mut element_id_mapping = FxHashMap::default();
         element_id_mapping.insert(ElementId(0), root_id);
 
+        let mut common_tags_and_attr_keys = HashSet::default();
+        common_tags_and_attr_keys.insert("view".into());
+        common_tags_and_attr_keys.insert("class".into());
+        common_tags_and_attr_keys.insert("value".into());
+
         VDom {
             nodes,
             templates: FxHashMap::default(),
             stack: smallvec![],
             element_id_mapping,
+            common_tags_and_attr_keys,
         }
     }
 
@@ -118,20 +127,21 @@ impl VDom {
                     name, value, id, ..
                 } => {
                     let node_id = self.element_id_mapping[&id];
-                    let node = self.nodes.get_mut(node_id).unwrap();
-                    // dbg!(&node.attrs);
                     if let BorrowedAttributeValue::None = &value {
+                        let node = self.nodes.get_mut(node_id).unwrap();
                         node.attrs.remove(name);
                     } else {
+                        let key = self.get_tag_or_attr_key(name);
+                        let node = self.nodes.get_mut(node_id).unwrap();
                         node.attrs.insert(
-                            name.to_string(),
+                            key,
                             match value {
                                 BorrowedAttributeValue::Int(val) => val.to_string(),
                                 BorrowedAttributeValue::Bool(val) => val.to_string(),
                                 BorrowedAttributeValue::Float(val) => val.to_string(),
                                 BorrowedAttributeValue::Text(val) => val.to_string(),
                                 BorrowedAttributeValue::None => "".to_string(),
-                                BorrowedAttributeValue::Any(val) => unimplemented!(),
+                                BorrowedAttributeValue::Any(_) => unimplemented!(),
                             },
                         );
                     }
@@ -151,6 +161,17 @@ impl VDom {
         current_id
     }
 
+    pub fn get_tag_or_attr_key(&mut self, key: &str) -> Rc<str> {
+        if let Some(s) = self.common_tags_and_attr_keys.get(key) {
+            return s.clone();
+        } else {
+            let key: Rc<str> = key.into();
+            let r = key.clone();
+            self.common_tags_and_attr_keys.insert(key);
+            return r;
+        }
+    }
+
     fn create_template_node(&mut self, node: &TemplateNode) -> NodeId {
         match *node {
             TemplateNode::Element {
@@ -159,20 +180,22 @@ impl VDom {
                 children,
                 ..
             } => {
-                let parent = self.nodes.insert(Node {
-                    tag: tag.to_string(),
+                let node = Node {
+                    tag: self.get_tag_or_attr_key(tag),
                     attrs: attrs
                         .iter()
                         .filter_map(|val| {
                             if let TemplateAttribute::Static { name, value, .. } = val {
-                                Some((name.to_string(), value.to_string()))
+                                println!("static attr {:?}", name);
+                                Some((self.get_tag_or_attr_key(name), value.to_string()))
                             } else {
                                 None
                             }
                         })
                         .collect(),
                     children: smallvec![],
-                });
+                };
+                let parent = self.nodes.insert(node);
 
                 for child in children {
                     let child = self.create_template_node(child);
@@ -183,17 +206,17 @@ impl VDom {
             }
             TemplateNode::Text { text } => {
                 let mut map = FxHashMap::default();
-                map.insert("value".to_string(), text.to_string());
+                map.insert(self.get_tag_or_attr_key("value"), text.to_string());
 
                 self.nodes.insert(Node {
-                    tag: "text".to_string(),
+                    tag: "text".into(),
                     children: smallvec![],
                     attrs: map,
                 })
             }
 
             _ => self.nodes.insert(Node {
-                tag: "placeholder".to_string(),
+                tag: "placeholder".into(),
                 children: smallvec![],
                 attrs: FxHashMap::default(),
             }),

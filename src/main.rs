@@ -18,7 +18,7 @@ mod dioxus_elements {
         pub const TAG_NAME: &'static str = "view";
         pub const NAME_SPACE: Option<&'static str> = None;
         #[allow(non_upper_case_globals)]
-        pub const class: AttributeDescription = ("", None, false);
+        pub const class: AttributeDescription = ("class", None, false);
     }
 }
 
@@ -46,6 +46,11 @@ fn main() {
         render!(
             view {
                 class: "w-{progress} h-200 bg-red-500",
+
+                view {}
+                view {}
+                view {}
+                view {}
                 // h1 { "Hello World" }
                 // p { "This is a paragraph" }
                 // Yo {
@@ -66,18 +71,15 @@ fn main() {
     let mut render_vdom = vdom::VDom::new();
     render_vdom.apply_mutations(mutations);
 
-    // render_vdom.traverse_tree(render_vdom.get_root_id(), &|node| {
-    //     // println!("YOOO {:?}", node.tag);
-    // });
-
+  
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async move {
             loop {
-                render_vdom.traverse_tree(render_vdom.get_root_id(), &|node| {
-                    // println!("YOOO {:?} {:?}", node.tag, node.attrs);
+                render_vdom.traverse_tree(render_vdom.get_root_id(), &|node| {                    
+                    // println!("{:?} {:?}", node.tag, node.attrs.get("class"));
                 });
                 vdom.wait_for_work().await;
 
