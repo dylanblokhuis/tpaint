@@ -6,6 +6,7 @@ use std::future::Future;
 
 use dioxus::prelude::*;
 use winit::{
+    event,
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
@@ -131,7 +132,8 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut dom_event_loop = DomEventLoop::spawn(app);
+    let mut dom_event_loop =
+        DomEventLoop::spawn(app, window.inner_size(), event_loop.create_proxy(), ());
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -144,8 +146,12 @@ fn main() {
                     window.request_redraw();
                 }
             }
+            winit::event::Event::UserEvent(_) => {
+                window.request_redraw();
+            }
             winit::event::Event::RedrawRequested(_) => {
-                // let triangles = ..
+                let primitives = dom_event_loop.get_paint_info();
+                println!("primitives: {:?}", primitives);
                 println!("\nredrawing!\n");
             }
             _ => (),

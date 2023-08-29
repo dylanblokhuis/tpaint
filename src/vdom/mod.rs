@@ -1,17 +1,23 @@
 pub mod events;
+pub mod tailwind;
 
-use std::{ops::Deref, rc::Rc, sync::{Arc, Mutex}};
+use std::{
+    ops::Deref,
+    sync::{Arc, Mutex}, fmt::Debug,
+};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
+use epaint::{ClippedShape, TextureId, WHITE_UV};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use taffy::{Taffy, prelude::Size};
+use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
 
-use self::events::{DomEvent, Event};
+use self::{events::{DomEvent}, tailwind::Tailwind};
 
 new_key_type! { pub struct NodeId; }
 
@@ -20,6 +26,7 @@ pub struct Node {
     pub tag: Arc<str>,
     pub attrs: FxHashMap<Arc<str>, String>,
     pub children: SmallVec<[NodeId; 32]>,
+    styling: Option<Tailwind>,
 }
 
 pub struct VDom {
@@ -38,6 +45,7 @@ impl VDom {
             tag: "root".into(),
             attrs: FxHashMap::default(),
             children: smallvec![],
+            styling: None,
         });
 
         let mut element_id_mapping = FxHashMap::default();
@@ -219,6 +227,7 @@ impl VDom {
                         })
                         .collect(),
                     children: smallvec![],
+                    styling: None,
                 };
                 let parent = self.nodes.insert(node);
 
@@ -237,6 +246,7 @@ impl VDom {
                     tag: "text".into(),
                     children: smallvec![],
                     attrs: map,
+                    styling: None,
                 })
             }
 
@@ -244,6 +254,7 @@ impl VDom {
                 tag: "placeholder".into(),
                 children: smallvec![],
                 attrs: FxHashMap::default(),
+            styling: None,
             }),
         }
     }
@@ -252,11 +263,33 @@ impl VDom {
         self.element_id_mapping[&ElementId(0)]
     }
 
-    pub fn traverse_tree(&self, root_id: NodeId, callback: &impl Fn(&Node)) {
+    pub fn traverse_tree(&self, root_id: NodeId, callback: &mut impl FnMut(&Node)) {
         let parent = self.nodes.get(root_id).unwrap();
         callback(parent);
         for child in parent.children.iter() {
             self.traverse_tree(*child, callback);
+        }
+    }
+
+    pub fn traverse_tree_mut(&mut self, root_id: NodeId, callback: &mut impl FnMut(&mut Node)) {
+        let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
+        let mut count = 0;
+    
+        {
+            let parent = self.nodes.get_mut(root_id).unwrap();
+            callback(parent);
+            
+            for (i, &child_id) in parent.children.iter().enumerate() {
+                if i >= MAX_CHILDREN {
+                    break
+                }
+                children[i] = child_id;
+                count += 1;
+            }
+        }
+    
+        for i in 0..count {
+            self.traverse_tree_mut(children[i], callback);
         }
     }
 }
@@ -267,15 +300,21 @@ pub struct Renderer {
 }
 
 pub struct DomEventLoop {
+    vdom: Arc<Mutex<VDom>>,
     dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
     pub pixels_per_point: f32,
 
     pub renderer: Renderer,
     pub last_cursor_pos: Option<PhysicalPosition<f64>>,
+    taffy: Taffy,
 }
 
+// a node can have a max of 1024 children
+const MAX_CHILDREN: usize = 1024;
+
+
 impl DomEventLoop {
-    pub fn spawn(app: fn(Scope) -> Element) -> DomEventLoop {
+    pub fn spawn<E: Debug + Send + Sync + Clone>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) =
             tokio::sync::mpsc::unbounded_channel::<DomEvent>();
 
@@ -284,12 +323,12 @@ impl DomEventLoop {
         std::thread::spawn({
             let render_vdom = render_vdom.clone();
             move || {
-            let mut vdom = VirtualDom::new(app);
-            let mutations = vdom.rebuild();
-            dbg!(&mutations);
-            render_vdom.lock().unwrap().apply_mutations(mutations);
+                let mut vdom = VirtualDom::new(app);
+                let mutations = vdom.rebuild();
+                dbg!(&mutations);
+                render_vdom.lock().unwrap().apply_mutations(mutations);
 
-            tokio::runtime::Builder::new_current_thread()
+                tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .unwrap()
@@ -304,17 +343,137 @@ impl DomEventLoop {
                         }
 
                         let mutations = vdom.render_immediate();
+                        dbg!(&mutations);
                         render_vdom.lock().unwrap().apply_mutations(mutations);
+                        
+                        event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
                     }
                 });
-        }});
+            }
+        });
 
         DomEventLoop {
+            vdom: render_vdom,
             dom_event_sender,
-            renderer: Renderer::default(),
+            renderer: Renderer {
+                window_size,
+            },
             last_cursor_pos: None,
             pixels_per_point: 1.0,
+            taffy: Taffy::new(),
         }
+    }
+
+    pub fn calculate_layout(&mut self) {
+        let mut vdom = self.vdom.lock().unwrap();
+        let root_id = vdom.get_root_id();
+        
+        // give root_node styling
+        {
+            vdom.nodes.get_mut(root_id).unwrap().attrs.insert("class".into(), "w-full h-full".into());
+        }
+
+        let taffy = &mut self.taffy;
+        vdom.traverse_tree_mut(root_id, &mut |node| {
+            let Some(class_attr) = node.attrs.get("class") else {
+                return;
+            };
+
+            if let Some(styling) = &mut node.styling {
+                styling.set_styling(taffy, class_attr);
+            } else {
+                let mut tw = Tailwind::default();
+                tw.set_styling(taffy, class_attr);
+                node.styling = Some(tw);
+            }
+        });
+
+        vdom.traverse_tree(root_id, &mut |node| {
+            let Some(styling) = &node.styling else {
+                return;
+            };
+            let parent_id = styling.node.unwrap();
+            let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
+            let mut count = 0; // Keep track of how many child_ids we've filled
+    
+            for (i, child) in node.children.iter().enumerate() {
+                if i >= MAX_CHILDREN { 
+                    log::error!("Max children reached for node {:?}", node);
+                    break;
+                }
+                if let Some(child_styling) = &vdom.nodes.get(*child).unwrap().styling {
+                    child_ids[i] = child_styling.node.unwrap();
+                    count += 1;
+                }
+            }
+    
+            taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
+        });
+
+        let node = vdom.nodes.get(root_id).unwrap();
+        let styling = node.styling.as_ref().unwrap();
+        dbg!(self.renderer.window_size);
+        taffy.compute_layout(styling.node.unwrap(), Size {
+            width: taffy::style::AvailableSpace::Definite(self.renderer.window_size.width as f32),
+            height: taffy::style::AvailableSpace::Definite(self.renderer.window_size.height as f32),
+        }).unwrap()
+    }
+
+    pub fn get_paint_info(&mut self) -> Vec<ClippedShape> {
+        self.calculate_layout();
+
+        let root_id = self.vdom.lock().unwrap().get_root_id();
+        let vdom = self.vdom.lock().unwrap();
+        let mut location = epaint::Pos2::ZERO;
+        // perhaps use VecDeque?
+        let mut shapes = Vec::with_capacity(vdom.nodes.len());
+        vdom.traverse_tree(root_id, &mut |node| {
+            if let Some(styling) = &node.styling {
+                let node = styling.node.unwrap();
+                let layout = self.taffy.layout(node).unwrap();
+                location += epaint::Vec2::new(layout.location.x, layout.location.y);
+                let width: f32 = layout.size.width;
+                let height: f32 = layout.size.height;
+                // let border_width = if focused {
+                //     FOCUS_BORDER_WIDTH
+                // } else {
+                //     tailwind.border.width
+                // };
+                let border_width = styling.border.width;
+                let rounding = styling.border.radius;
+                let x_start = location.x + border_width / 2.0;
+                let y_start = location.y + border_width / 2.0;
+                let x_end: f32 = location.x + width - border_width / 2.0;
+                let y_end: f32 = location.y + height - border_width / 2.0;
+                let rect = epaint::Rect {
+                    min: epaint::Pos2 {
+                        x: x_start,
+                        y: y_start,
+                    },
+                    max: epaint::Pos2 { x: x_end, y: y_end },
+                };
+                
+                let shape =  epaint::Shape::Rect(epaint::RectShape {
+                    rect,
+                    rounding,
+                    fill: styling.background_color,
+                    stroke: epaint::Stroke {
+                        width: border_width,
+                        color: styling.border.color,
+                    },
+                    fill_texture_id: TextureId::default(),
+                    uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+                });
+                let clip = shape.visual_bounding_rect();
+
+                shapes.push(ClippedShape {
+                    clip_rect: clip,
+                    shape,
+                });                
+            }
+        });
+
+        shapes
     }
 
     /// bool: whether the window needs to be redrawn
@@ -345,7 +504,7 @@ impl DomEventLoop {
             _ => false,
         }
     }
-    
+
     pub fn get_elements_by_event(&self, event_listener: &str) {
         // self.event_
     }
@@ -355,7 +514,6 @@ impl DomEventLoop {
             pos_in_pixels.x as f32 / self.pixels_per_point,
             pos_in_pixels.y as f32 / self.pixels_per_point,
         );
-
 
         false
     }
