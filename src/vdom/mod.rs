@@ -1,4 +1,6 @@
-use std::{any::Any, ops::Deref, rc::Rc, sync::Arc};
+pub mod events;
+
+use std::{ops::Deref, rc::Rc, sync::{Arc, Mutex}};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
@@ -7,16 +9,16 @@ use dioxus::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
-use tao::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 
-use crate::dioxus_elements::events::MouseData;
+use self::events::{DomEvent, Event};
 
 new_key_type! { pub struct NodeId; }
 
 #[derive(Debug)]
 pub struct Node {
-    pub tag: Rc<str>,
-    pub attrs: FxHashMap<Rc<str>, String>,
+    pub tag: Arc<str>,
+    pub attrs: FxHashMap<Arc<str>, String>,
     pub children: SmallVec<[NodeId; 32]>,
 }
 
@@ -25,7 +27,8 @@ pub struct VDom {
     templates: FxHashMap<String, SmallVec<[NodeId; 32]>>,
     stack: SmallVec<[NodeId; 32]>,
     element_id_mapping: FxHashMap<ElementId, NodeId>,
-    common_tags_and_attr_keys: FxHashSet<Rc<str>>,
+    common_tags_and_attr_keys: FxHashSet<Arc<str>>,
+    event_listeners: FxHashMap<ElementId, SmallVec<[Arc<str>; 8]>>,
 }
 
 impl VDom {
@@ -51,6 +54,7 @@ impl VDom {
             stack: smallvec![],
             element_id_mapping,
             common_tags_and_attr_keys,
+            event_listeners: FxHashMap::default(),
         }
     }
 
@@ -130,6 +134,20 @@ impl VDom {
                         self.nodes[parent].children.push(child);
                     }
                 }
+                dioxus::core::Mutation::NewEventListener { name, id } => {
+                    let name = self.get_tag_or_attr_key(name);
+                    if let Some(listeners) = self.event_listeners.get_mut(&id) {
+                        listeners.push(name);
+                    } else {
+                        self.event_listeners.insert(id, smallvec![name]);
+                    }
+                }
+                dioxus::core::Mutation::RemoveEventListener { name, id } => {
+                    let name = self.get_tag_or_attr_key(name);
+                    if let Some(listeners) = self.event_listeners.get_mut(&id) {
+                        listeners.retain(|val| val != &name);
+                    }
+                }
                 dioxus::core::Mutation::SetAttribute {
                     name, value, id, ..
                 } => {
@@ -168,11 +186,11 @@ impl VDom {
         current_id
     }
 
-    pub fn get_tag_or_attr_key(&mut self, key: &str) -> Rc<str> {
+    pub fn get_tag_or_attr_key(&mut self, key: &str) -> Arc<str> {
         if let Some(s) = self.common_tags_and_attr_keys.get(key) {
             s.clone()
         } else {
-            let key: Rc<str> = key.into();
+            let key: Arc<str> = key.into();
             let r = key.clone();
             self.common_tags_and_attr_keys.insert(key);
             r
@@ -243,41 +261,17 @@ impl VDom {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum EventData {
-    MouseData(MouseData),
-}
-
-impl EventData {
-    pub fn into_any(self) -> Rc<dyn Any> {
-        match self {
-            EventData::MouseData(data) => Rc::new(data),
-            // EventData::Keyboard(data) => Rc::new(data),
-            // EventData::Focus(data) => Rc::new(data),
-            // EventData::Wheel(data) => Rc::new(data),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct DomEvent {
-    pub name: &'static str,
-    pub data: Arc<EventData>,
-    pub element_id: ElementId,
-    pub bubbles: bool,
-}
-
 #[derive(Default)]
 pub struct Renderer {
-    pub pixels_per_point: f32,
     pub window_size: PhysicalSize<u32>,
 }
 
 pub struct DomEventLoop {
-    pub dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
-    pub events: Vec<DomEvent>,
+    dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
+    pub pixels_per_point: f32,
 
     pub renderer: Renderer,
+    pub last_cursor_pos: Option<PhysicalPosition<f64>>,
 }
 
 impl DomEventLoop {
@@ -285,12 +279,15 @@ impl DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) =
             tokio::sync::mpsc::unbounded_channel::<DomEvent>();
 
-        std::thread::spawn(move || {
+        let render_vdom = Arc::new(Mutex::new(VDom::new()));
+
+        std::thread::spawn({
+            let render_vdom = render_vdom.clone();
+            move || {
             let mut vdom = VirtualDom::new(app);
             let mutations = vdom.rebuild();
             dbg!(&mutations);
-            let mut render_vdom = VDom::new();
-            render_vdom.apply_mutations(mutations);
+            render_vdom.lock().unwrap().apply_mutations(mutations);
 
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -307,40 +304,66 @@ impl DomEventLoop {
                         }
 
                         let mutations = vdom.render_immediate();
-                        render_vdom.apply_mutations(mutations);
+                        render_vdom.lock().unwrap().apply_mutations(mutations);
                     }
                 });
-        });
+        }});
 
         DomEventLoop {
             dom_event_sender,
             renderer: Renderer::default(),
-            events: vec![],
+            last_cursor_pos: None,
+            pixels_per_point: 1.0,
         }
     }
 
     /// bool: whether the window needs to be redrawn
-    pub fn on_window_event(&mut self, event: &tao::event::WindowEvent<'_>) -> bool {
-        use tao::event::WindowEvent;
+    pub fn on_window_event(&mut self, event: &winit::event::WindowEvent<'_>) -> bool {
+        use winit::event::WindowEvent;
         match event {
             WindowEvent::ScaleFactorChanged {
                 scale_factor,
                 new_inner_size,
             } => {
-                self.renderer.pixels_per_point = *scale_factor as f32;
+                self.pixels_per_point = *scale_factor as f32;
                 self.renderer.window_size = **new_inner_size;
                 true
             }
+
+            WindowEvent::CursorMoved { position, .. } => self.on_mouse_move(position),
+
+            WindowEvent::CursorLeft { .. } => {
+                self.last_cursor_pos = None;
+                false
+            }
+
+            // WindowEvent::MouseInput { state, button, .. } => {
+
+            // }
 
             // WindowEvent::MouseInput { state, button, .. } => {}
             _ => false,
         }
     }
+    
+    pub fn get_elements_by_event(&self, event_listener: &str) {
+        // self.event_
+    }
 
-    pub fn on_mouse_input(
+    fn on_mouse_move(&mut self, pos_in_pixels: &PhysicalPosition<f64>) -> bool {
+        let pos_in_points = epaint::pos2(
+            pos_in_pixels.x as f32 / self.pixels_per_point,
+            pos_in_pixels.y as f32 / self.pixels_per_point,
+        );
+
+
+        false
+    }
+
+    fn on_mouse_input(
         &mut self,
-        state: tao::event::ElementState,
-        button: tao::event::MouseButton,
+        state: winit::event::ElementState,
+        button: winit::event::MouseButton,
     ) {
 
         // if state == tao::event::ElementState::Pressed {
