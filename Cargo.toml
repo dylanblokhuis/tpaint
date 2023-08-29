@@ -1,21 +1,9 @@
-[package]
-name = "dioxus-native2"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/tpaint",
+    "crates/tpaint_glow",
+    # "crates/tpaint_wgpu",
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-dioxus = { version = "0.4.0", default-features = false, features = ["macro", "hooks"] }
-epaint = { git = "https://github.com/emilk/egui", features = ["bytemuck", "default", "log"] }
-lazy_static = "1.4.0"
-log = "0.4.20"
-rustc-hash = "1.1.0"
-simple_logger = "4.2.0"
-slotmap = "1.0.6"
-smallvec = "1.11.0"
-taffy = { git = "https://github.com/dioxuslabs/taffy" }
-tokio = { version = "1.32.0", features = ["time", "rt", "sync", "macros"] }
-tween = "2.0.1"
-uuid = { version = "1.4.1", features = ["v4"] }
-winit = "0.28.6"
+    "examples/*",
+]

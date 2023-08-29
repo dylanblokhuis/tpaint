@@ -3,14 +3,14 @@ pub mod tailwind;
 
 use std::{
     ops::Deref,
-    sync::{Arc, Mutex}, fmt::Debug,
+    sync::{Arc, Mutex, RwLock}, fmt::Debug,
 };
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
-use epaint::{ClippedShape, TextureId, WHITE_UV};
+use epaint::{ClippedShape, TextureId, WHITE_UV, Fonts, TextureManager, text::FontDefinitions, textures::{TextureOptions, TexturesDelta}, TessellationOptions, ClippedPrimitive};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
@@ -294,9 +294,37 @@ impl VDom {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug)]
+pub struct ScreenDescriptor {
+    pub pixels_per_point: f32,
+    pub size: PhysicalSize<u32>,
+}
+
 pub struct Renderer {
-    pub window_size: PhysicalSize<u32>,
+    pub screen_descriptor: ScreenDescriptor,
+    pub fonts: Fonts,
+    pub tex_manager: TextureManager,
+}
+
+impl Renderer {
+    pub fn new(window_size: PhysicalSize<u32>, definitions: FontDefinitions) -> Renderer {
+        let fonts = Fonts::new(1.0, 2 * 1024, definitions);
+        let mut tex_manager = TextureManager::default();
+        let font_image_delta: Option<_> = fonts.font_image_delta();
+        if let Some(font_image_delta) = font_image_delta {
+            tex_manager.alloc(
+                "fonts".into(),
+                font_image_delta.image,
+                TextureOptions::LINEAR,
+            );
+        }
+
+        Renderer {
+            screen_descriptor: ScreenDescriptor { pixels_per_point: 1.0, size: window_size },
+            fonts,
+            tex_manager
+        }
+    }
 }
 
 pub struct DomEventLoop {
@@ -355,9 +383,7 @@ impl DomEventLoop {
         DomEventLoop {
             vdom: render_vdom,
             dom_event_sender,
-            renderer: Renderer {
-                window_size,
-            },
+            renderer: Renderer::new(window_size, FontDefinitions::default()),
             last_cursor_pos: None,
             pixels_per_point: 1.0,
             taffy: Taffy::new(),
@@ -412,14 +438,14 @@ impl DomEventLoop {
 
         let node = vdom.nodes.get(root_id).unwrap();
         let styling = node.styling.as_ref().unwrap();
-        dbg!(self.renderer.window_size);
+        dbg!(&self.renderer.screen_descriptor);
         taffy.compute_layout(styling.node.unwrap(), Size {
-            width: taffy::style::AvailableSpace::Definite(self.renderer.window_size.width as f32),
-            height: taffy::style::AvailableSpace::Definite(self.renderer.window_size.height as f32),
+            width: taffy::style::AvailableSpace::Definite(self.renderer.screen_descriptor.size.width as f32),
+            height: taffy::style::AvailableSpace::Definite(self.renderer.screen_descriptor.size.height as f32),
         }).unwrap()
     }
 
-    pub fn get_paint_info(&mut self) -> Vec<ClippedShape> {
+    pub fn get_paint_info(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         self.calculate_layout();
 
         let root_id = self.vdom.lock().unwrap().get_root_id();
@@ -473,8 +499,36 @@ impl DomEventLoop {
             }
         });
 
-        shapes
-    }
+        let texture_delta = {
+            let font_image_delta = self.renderer.fonts.font_image_delta();
+            if let Some(font_image_delta) = font_image_delta {
+                self.renderer.tex_manager.set(TextureId::default(), font_image_delta);
+            }
+
+            self.renderer.tex_manager.take_delta()
+        };
+
+        let (font_tex_size, prepared_discs) = {
+            let atlas = self.renderer.fonts.texture_atlas();
+            let atlas = atlas.lock();
+            (atlas.size(), atlas.prepared_discs())
+        };
+
+        let primitives = {
+            epaint::tessellator::tessellate_shapes(
+                self.renderer.fonts.pixels_per_point(),
+                TessellationOptions::default(),
+                font_tex_size,
+                prepared_discs,
+                std::mem::take(&mut shapes),
+            )
+        };
+
+        (
+            primitives,
+            texture_delta,
+            &self.renderer.screen_descriptor
+        )    }
 
     /// bool: whether the window needs to be redrawn
     pub fn on_window_event(&mut self, event: &winit::event::WindowEvent<'_>) -> bool {
@@ -485,7 +539,12 @@ impl DomEventLoop {
                 new_inner_size,
             } => {
                 self.pixels_per_point = *scale_factor as f32;
-                self.renderer.window_size = **new_inner_size;
+                self.renderer.screen_descriptor.size = **new_inner_size;
+                true
+            }
+
+            WindowEvent::Resized(new_inner_size) => {
+                self.renderer.screen_descriptor.size = *new_inner_size;
                 true
             }
 
