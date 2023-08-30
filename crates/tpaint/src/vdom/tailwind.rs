@@ -48,13 +48,23 @@ pub struct Tailwind {
     pub text: TextStyling,
 }
 
+pub struct StyleState {
+    pub hovered: bool,
+    pub focused: bool,
+}
+
 impl Tailwind {
-    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str) {
+    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) {
         let classes = class.split_whitespace();
 
         let mut style = Style::default();
         for class in classes {
             self.handle_class(&mut style, &COLORS, class);
+            if state.hovered {
+                if let Some(class) = class.strip_prefix("hover:") {
+                    self.handle_class(&mut style, &COLORS, class);
+                }
+            }
         }
 
         if let Some(node) = self.node {

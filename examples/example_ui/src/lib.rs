@@ -19,13 +19,28 @@ pub fn app(cx: Scope) -> Element {
 
     cx.render(rsx! {
         view {
-            class: "flex-col gap-4",
+            class: "flex-col w-full h-full bg-red-200",
+
             view {
-                class: "w-100 h-100 bg-blue-500 hover:bg-blue-700"
+                class: "w-100 h-100 bg-blue-500 hover:bg-blue-700 items-center justify-center",
+
+                view {
+                    class: "w-50 h-50 bg-green-500 hover:bg-green-700 flex-col items-center ",
+
+                    view {
+                        class: "w-25 h-25 bg-slate-500 hover:bg-slate-700",
+                    }
+                }
             }
 
             view {
                 class: "w-100 h-100 bg-red-500",
+                onclick: move |_| {
+                    println!("Clicked");
+                },
+                onmousemove: move |_| {
+                    println!("Mouse moved");
+                }
             }
 
             view {

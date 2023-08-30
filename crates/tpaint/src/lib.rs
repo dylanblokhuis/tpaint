@@ -68,6 +68,13 @@ pub mod prelude {
             impl_event! [
                 crate::vdom::events::PointerInput;
                 onclick
+                onmouseup
+                onmousedown
+            ];
+
+            impl_event! [
+                crate::vdom::events::PointerMove;
+                onmousemove
             ];
         }
     }
