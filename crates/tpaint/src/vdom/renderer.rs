@@ -1,10 +1,10 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Fonts, Pos2, TessellationOptions, TextureId, TextureManager,
+    ClippedPrimitive, ClippedShape, Fonts, TessellationOptions, TextureId, TextureManager,
     Vec2, WHITE_UV,
 };
-use smallvec::{smallvec, SmallVec};
+
 use taffy::{prelude::Size, Taffy};
 use winit::dpi::PhysicalSize;
 
@@ -37,7 +37,7 @@ impl Renderer {
 
         Renderer {
             screen_descriptor: ScreenDescriptor {
-                pixels_per_point: pixels_per_point,
+                pixels_per_point,
                 size: window_size,
             },
             fonts,
@@ -98,7 +98,7 @@ impl Renderer {
                 node.styling = Some(styling);
             }
 
-            return true;
+            true
         });
 
         vdom.traverse_tree(root_id, &mut |node| {
@@ -121,7 +121,7 @@ impl Renderer {
             }
 
             taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
-            return true;
+            true
         });
 
         let node = vdom.nodes.get(root_id).unwrap();
@@ -166,11 +166,11 @@ impl Renderer {
             };
 
             shapes.push(if node.tag == "text".into() {
-              self.get_text_shape(node, parent.unwrap(),  &layout, &location)
+              self.get_text_shape(node, parent.unwrap(),  layout, &location)
             } else {
-              self.get_rect_shape(node, vdom, styling, &layout, &location)
+              self.get_rect_shape(node, vdom, styling, layout, &location)
             });
-            return true;
+            true
         });
 
         let texture_delta = {
@@ -205,11 +205,11 @@ impl Renderer {
       &self,
       node: &Node,
       parent_node: &Node,
-      layout: &taffy::prelude::Layout,
+      _layout: &taffy::prelude::Layout,
       location: &Vec2,
     ) -> ClippedShape {
       let parent = parent_node.styling.as_ref().unwrap();
-      let styling = node.styling.as_ref().unwrap();
+      let _styling = node.styling.as_ref().unwrap();
         
       let shape = epaint::Shape::text(
         &self.fonts,

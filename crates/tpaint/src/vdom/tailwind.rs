@@ -81,7 +81,7 @@ impl Tailwind {
 
     pub fn set_text_styling(&mut self, text: &str, taffy: &mut Taffy, fonts: &Fonts, parent: &Tailwind) {        
         let shape = epaint::Shape::text(
-            &fonts,
+            fonts,
             epaint::Pos2 { x: 0.0, y: 0.0 },
             epaint::emath::Align2::LEFT_TOP,
             text,

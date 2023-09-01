@@ -10,14 +10,14 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
-use epaint::{ClippedShape, TextureId, WHITE_UV, Fonts, TextureManager, text::FontDefinitions, textures::{TextureOptions, TexturesDelta}, TessellationOptions, ClippedPrimitive, Tessellator, Pos2, FontId};
+use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
-use taffy::{Taffy, prelude::Size};
+
 use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
 
-use self::{tailwind::{Tailwind, StyleState}, events::{DomEvent, PointerMove, PointerInput}, renderer::Renderer};
+use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput}, renderer::Renderer};
 
 new_key_type! { pub struct NodeId; }
 
@@ -492,7 +492,7 @@ impl DomEventLoop {
                 false
             }
 
-            WindowEvent::Focused(focused) => {
+            WindowEvent::Focused(_focused) => {
                 self.keyboard_state.modifiers = events::Modifiers::default();
                 false
             }
@@ -532,7 +532,7 @@ impl DomEventLoop {
                 elements.push(node.id);            
             }
 
-            return true;
+            true
         });
 
         vdom.hovered = elements.clone();
