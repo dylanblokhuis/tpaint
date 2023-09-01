@@ -1,5 +1,6 @@
 pub mod events;
 pub mod tailwind;
+mod renderer;
 
 use std::{
     sync::{Arc, Mutex}, fmt::Debug, ops::Deref,
@@ -9,14 +10,14 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
-use epaint::{ClippedShape, TextureId, WHITE_UV, Fonts, TextureManager, text::FontDefinitions, textures::{TextureOptions, TexturesDelta}, TessellationOptions, ClippedPrimitive, Tessellator, Pos2};
+use epaint::{ClippedShape, TextureId, WHITE_UV, Fonts, TextureManager, text::FontDefinitions, textures::{TextureOptions, TexturesDelta}, TessellationOptions, ClippedPrimitive, Tessellator, Pos2, FontId};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
 use taffy::{Taffy, prelude::Size};
 use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
 
-use self::{tailwind::{Tailwind, StyleState}, events::{DomEvent, PointerMove, PointerInput}};
+use self::{tailwind::{Tailwind, StyleState}, events::{DomEvent, PointerMove, PointerInput}, renderer::Renderer};
 
 new_key_type! { pub struct NodeId; }
 
@@ -37,6 +38,7 @@ pub struct VDom {
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     event_listeners: FxHashMap<NodeId, SmallVec<[Arc<str>; 8]>>,
     hovered: SmallVec<[NodeId; MAX_CHILDREN]>,
+    focused: Option<NodeId>
 }
 
 impl VDom {
@@ -66,6 +68,7 @@ impl VDom {
             common_tags_and_attr_keys,
             event_listeners: FxHashMap::default(),
             hovered: smallvec![],
+            focused: None,
         }
     }
 
@@ -226,7 +229,6 @@ impl VDom {
                         .iter()
                         .filter_map(|val| {
                             if let TemplateAttribute::Static { name, value, .. } = val {
-                                println!("static attr {:?}", name);
                                 Some((self.get_tag_or_attr_key(name), value.to_string()))
                             } else {
                                 None
@@ -301,6 +303,43 @@ impl VDom {
         }
     }
 
+    fn traverse_tree_mut_with_parent(&mut self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&mut Node, Option<&Node>) -> bool) {
+        let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
+        let mut count = 0;
+        
+        { 
+            let node = if let Some(parent_id) = parent_id {
+                let [node, parent] = self.nodes.get_disjoint_mut([id, parent_id]).unwrap();
+                let should_continue = callback(node, Some(parent));
+                if !should_continue {
+                    return;
+                }
+                
+                node
+            } else {
+                let node = self.nodes.get_mut(id).unwrap();
+                let should_continue: bool = callback(node, None);
+                if !should_continue {
+                    return;
+                }            
+                
+                node
+            };
+            
+            for (i, &child_id) in node.children.iter().enumerate() {
+                if i >= MAX_CHILDREN {
+                    break
+                }
+                children[i] = child_id;
+                count += 1;
+            }
+        }
+       
+        for i in 0..count {
+            self.traverse_tree_mut_with_parent(children[i], Some(id), callback);
+        }
+    }
+
     pub fn traverse_tree_mut(&mut self, root_id: NodeId, callback: &mut impl FnMut(&mut Node) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -334,32 +373,8 @@ pub struct ScreenDescriptor {
     pub size: PhysicalSize<u32>,
 }
 
-pub struct Renderer {
-    pub screen_descriptor: ScreenDescriptor,
-    pub fonts: Fonts,
-    pub tex_manager: TextureManager,
-}
 
-impl Renderer {
-    pub fn new(window_size: PhysicalSize<u32>, definitions: FontDefinitions) -> Renderer {
-        let fonts = Fonts::new(1.0, 1024, definitions);
-        let mut tex_manager = TextureManager::default();
-        let font_image_delta: Option<_> = fonts.font_image_delta();
-        if let Some(font_image_delta) = font_image_delta {
-            tex_manager.alloc(
-                "fonts".into(),
-                font_image_delta.image,
-                TextureOptions::LINEAR,
-            );
-        }
 
-        Renderer {
-            screen_descriptor: ScreenDescriptor { pixels_per_point: 1.0, size: window_size },
-            fonts,
-            tex_manager
-        }
-    }
-}
 
 #[derive(Clone, Default)]
 pub struct CursorState {
@@ -379,14 +394,13 @@ pub struct DomEventLoop {
     pub renderer: Renderer,
     pub cursor_state: CursorState,
     pub keyboard_state: KeyboardState,
-    taffy: Taffy,
 }
 
 // a node can have a max of 1024 children
 const MAX_CHILDREN: usize = 1024;
 
 impl DomEventLoop {
-    pub fn spawn<E: Debug + Send + Sync + Clone>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E) -> DomEventLoop {
+    pub fn spawn<E: Debug + Send + Sync + Clone>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) =
             tokio::sync::mpsc::unbounded_channel::<DomEvent>();
 
@@ -427,170 +441,16 @@ impl DomEventLoop {
         DomEventLoop {
             vdom: render_vdom,
             dom_event_sender,
-            renderer: Renderer::new(window_size, FontDefinitions::default()),
+            renderer: Renderer::new(window_size, pixels_per_point, FontDefinitions::default()),
             cursor_state: CursorState::default(),
             keyboard_state: KeyboardState::default(),
-            taffy: Taffy::new(),
         }
-    }
-
-    pub fn calculate_layout(&mut self) {
-        let mut vdom = self.vdom.lock().unwrap();
-        let root_id = vdom.get_root_id();
-        
-        // give root_node styling
-        {
-            vdom.nodes.get_mut(root_id).unwrap().attrs.insert("class".into(), "w-full h-full".into());
-        }
-
-        let taffy = &mut self.taffy;
-        let hovered = vdom.hovered.clone();
-        vdom.traverse_tree_mut(root_id, &mut |node| {
-            let Some(class_attr) = node.attrs.get("class") else {
-                return true;
-            };
-
-            if let Some(styling) = &mut node.styling {
-                styling.set_styling(taffy, class_attr, &StyleState {
-                    hovered: hovered.contains(&node.id),
-                    focused: false,
-                });
-            } else {
-                let mut tw = Tailwind::default();
-                tw.set_styling(taffy, class_attr, &StyleState {
-                    hovered: hovered.contains(&node.id),
-                    focused: false,
-                });
-                node.styling = Some(tw);
-            }
-
-            return true;
-        });
-
-        vdom.traverse_tree(root_id, &mut |node| {
-            let Some(styling) = &node.styling else {
-                return true;
-            };
-            let parent_id = styling.node.unwrap();
-            let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
-            let mut count = 0; // Keep track of how many child_ids we've filled
-    
-            for (i, child) in node.children.iter().enumerate() {
-                if i >= MAX_CHILDREN { 
-                    log::error!("Max children reached for node {:?}", node);
-                    break;
-                }
-                if let Some(child_styling) = &vdom.nodes.get(*child).unwrap().styling {
-                    child_ids[i] = child_styling.node.unwrap();
-                    count += 1;
-                }
-            }
-    
-            taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
-            return true;
-        });
-
-        let node = vdom.nodes.get(root_id).unwrap();
-        let styling = node.styling.as_ref().unwrap();
-        taffy.compute_layout(styling.node.unwrap(), Size {
-            width: taffy::style::AvailableSpace::Definite(self.renderer.screen_descriptor.size.width as f32),
-            height: taffy::style::AvailableSpace::Definite(self.renderer.screen_descriptor.size.height as f32),
-        }).unwrap()
     }
 
     pub fn get_paint_info(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
-        self.calculate_layout();
-
-        let root_id = self.vdom.lock().unwrap().get_root_id();
-        let vdom = self.vdom.lock().unwrap();
-        // perhaps use VecDeque?
-        let mut shapes = Vec::with_capacity(vdom.nodes.len());
-        vdom.traverse_tree_with_parent(root_id, None,&mut |node, parent| {
-            let Some(styling) = &node.styling else {
-                return true;
-            };
-            let node = styling.node.unwrap();
-            let layout = self.taffy.layout(node).unwrap();
-
-            let location = if let Some(parent) = parent {
-                let parent_layout = self.taffy.layout(parent.styling.as_ref().unwrap().node.unwrap()).unwrap();
-                epaint::Vec2::new(parent_layout.location.x, parent_layout.location.y) + epaint::Vec2::new(layout.location.x, layout.location.y)
-            } else {
-                epaint::Vec2::new(layout.location.x, layout.location.y)
-            };
-
-            let width: f32 = layout.size.width;
-            let height: f32 = layout.size.height;
-            // let border_width = if focused {
-            //     FOCUS_BORDER_WIDTH
-            // } else {
-            //     tailwind.border.width
-            // };
-            let border_width = styling.border.width;
-            let rounding = styling.border.radius;
-            let x_start = location.x + border_width / 2.0;
-            let y_start = location.y + border_width / 2.0;
-            let x_end: f32 = location.x + width - border_width / 2.0;
-            let y_end: f32 = location.y + height - border_width / 2.0;
-            let rect = epaint::Rect {
-                min: epaint::Pos2 {
-                    x: x_start,
-                    y: y_start,
-                },
-                max: epaint::Pos2 { x: x_end, y: y_end },
-            };
-            
-            let shape =  epaint::Shape::Rect(epaint::RectShape {
-                rect,
-                rounding,
-                fill: styling.background_color,
-                stroke: epaint::Stroke {
-                    width: border_width,
-                    color: styling.border.color,
-                },
-                fill_texture_id: TextureId::default(),
-                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
-            });
-            let clip = shape.visual_bounding_rect();
-
-            shapes.push(ClippedShape {
-                clip_rect: clip,
-                shape,
-            });    
-
-            return true;            
-        });
-
-        let texture_delta = {
-            let font_image_delta = self.renderer.fonts.font_image_delta();
-            if let Some(font_image_delta) = font_image_delta {
-                self.renderer.tex_manager.set(TextureId::default(), font_image_delta);
-            }
-
-            self.renderer.tex_manager.take_delta()
-        };
-
-        let (font_tex_size, prepared_discs) = {
-            let atlas = self.renderer.fonts.texture_atlas();
-            let atlas = atlas.lock();
-            (atlas.size(), atlas.prepared_discs())
-        };
-
-        let primitives = {
-            epaint::tessellator::tessellate_shapes(
-                self.renderer.fonts.pixels_per_point(),
-                TessellationOptions::default(),
-                font_tex_size,
-                prepared_discs,
-                std::mem::take(&mut shapes),
-            )
-        };
-
-        (
-            primitives,
-            texture_delta,
-            &self.renderer.screen_descriptor
-        )    
+        let mut vdom = self.vdom.lock().unwrap();
+        self.renderer.calculate_layout(&mut vdom);
+        self.renderer.get_paint_info(&mut vdom)
     }
 
     /// bool: whether the window needs to be redrawn
@@ -647,10 +507,6 @@ impl DomEventLoop {
         }
     }
 
-    pub fn get_elements_by_event(&self, event_listener: &str) {
-        // self.event_
-    }
-
     pub fn get_elements_on_pos(&self, translated_mouse_pos: Pos2) -> SmallVec<[NodeId; MAX_CHILDREN]> {
         let mut vdom = self.vdom.lock().unwrap();
         let root_id = vdom.get_root_id();
@@ -660,9 +516,9 @@ impl DomEventLoop {
                 return true;
             };
             let node_id = styling.node.unwrap();
-            let layout = self.taffy.layout(node_id).unwrap();
+            let layout = self.renderer.taffy.layout(node_id).unwrap();
             let absolute_location = if let Some(parent) = parent {
-                let parent_layout = self.taffy.layout(parent.styling.as_ref().unwrap().node.unwrap()).unwrap();
+                let parent_layout = self.renderer.taffy.layout(parent.styling.as_ref().unwrap().node.unwrap()).unwrap();
                 epaint::Vec2::new(parent_layout.location.x, parent_layout.location.y) + epaint::Vec2::new(layout.location.x, layout.location.y)
             } else {
                 epaint::Vec2::new(layout.location.x, layout.location.y)

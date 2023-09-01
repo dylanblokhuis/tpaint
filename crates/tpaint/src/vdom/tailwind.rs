@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use epaint::emath::Align2;
-use epaint::{Color32, Rounding};
+use epaint::{Color32, Rounding, Fonts, FontId, FontFamily};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::prelude::*;
@@ -28,6 +28,7 @@ pub struct Border {
 pub struct TextStyling {
     pub color: Color32,
     pub align: Align2,
+    pub font: FontId,
 }
 
 impl Default for TextStyling {
@@ -35,6 +36,10 @@ impl Default for TextStyling {
         Self {
             color: Color32::BLACK,
             align: Align2::LEFT_TOP,
+            font: FontId {
+                size: 16.0,
+                family: FontFamily::default(),
+            },
         }
     }
 }
@@ -66,6 +71,36 @@ impl Tailwind {
                 }
             }
         }
+
+        if let Some(node) = self.node {
+            taffy.set_style(node, style).unwrap();
+        } else {
+            self.node = Some(taffy.new_leaf(style).unwrap());
+        }
+    }
+
+    pub fn set_text_styling(&mut self, text: &str, taffy: &mut Taffy, fonts: &Fonts, parent: &Tailwind) {        
+        let shape = epaint::Shape::text(
+            &fonts,
+            epaint::Pos2 { x: 0.0, y: 0.0 },
+            epaint::emath::Align2::LEFT_TOP,
+            text,
+            parent.text.font.clone(),
+            epaint::Color32::WHITE,
+        );
+        let rect = shape.visual_bounding_rect();
+        let width = rect.width();
+
+        let font_pad_width = parent.text.font.size / 7.5;
+        let line_height = parent.text.font.size * 1.15;
+
+        let style = Style {
+            size: Size {
+                width: Dimension::Length(width + font_pad_width),
+                height: Dimension::Length(line_height),
+            },
+            ..Default::default()
+        };
 
         if let Some(node) = self.node {
             taffy.set_style(node, style).unwrap();

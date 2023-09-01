@@ -138,7 +138,7 @@ impl GlutinWindowContext {
 }
 
 fn main() {
-    simple_logger::SimpleLogger::new().init().unwrap();
+    // simple_logger::SimpleLogger::new().init().unwrap();
 
     let clear_color = [1.0, 1.0, 1.0];
 
@@ -149,6 +149,7 @@ fn main() {
     let mut app = DomEventLoop::spawn(
         example_ui::app,
         gl_window.window().inner_size(),
+        gl_window.window().scale_factor() as f32,
         event_loop.create_proxy(),
         (),
     );
@@ -170,6 +171,7 @@ fn main() {
                 }
 
                 let (primitives, delta, screen_descriptor) = app.get_paint_info();
+
                 for (id, image_delta) in delta.set {
                     painter.set_texture(id, &image_delta);
                 }

@@ -56,10 +56,10 @@ pub fn app(cx: Scope) -> Element {
             //     src: "../../example_ui/assets/placeholder.png"
             // }
 
-            // span {
-            //     class: "text-20 text-black",
-            //     "Backend: {ctx.backend}"
-            // }
+            view {
+                class: "text-20 text-red-500 bg-indigo-300",
+                "Backend"
+            }
             // span {
             //     class: "text-20 text-black font-mono",
             //     "Mono font"
