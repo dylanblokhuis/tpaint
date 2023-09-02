@@ -245,6 +245,14 @@ impl Tailwind {
             style.size.height = handle_size(class);
         }
 
+        if let Some(class) = class.strip_prefix("min-w-") {
+            style.min_size.width = handle_size(class);
+        }
+
+        if let Some(class) = class.strip_prefix("min-h-") {
+            style.min_size.height = handle_size(class);
+        }
+
         if let Some(class) = class.strip_prefix("bg-") {
             if let Some(color) = handle_color(class, colors) {
                 self.background_color = color;
@@ -287,6 +295,58 @@ impl Tailwind {
         if let Some(class) = class.strip_prefix("pb-") {
             let padding = LengthPercentage::Length(class.parse::<f32>().unwrap_or(0.0));
             style.padding.bottom = padding;
+        }
+
+        if let Some(class) = class.strip_prefix("pl-") {
+            let padding = LengthPercentage::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.padding.left = padding;
+        }
+
+        if let Some(class) = class.strip_prefix("pr-") {
+            let padding = LengthPercentage::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.padding.right = padding;
+        }
+
+        if let Some(class) = class.strip_prefix("m-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin = Rect {
+                top: margin,
+                bottom: margin,
+                left: margin,
+                right: margin,
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("my-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.top = margin;
+            style.margin.bottom = margin;
+        }
+
+        if let Some(class) = class.strip_prefix("mx-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.left = margin;
+            style.margin.right = margin;
+        }
+
+        if let Some(class) = class.strip_prefix("mt-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.top = margin;
+        }
+
+        if let Some(class) = class.strip_prefix("mb-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.bottom = margin;
+        }
+
+        if let Some(class) = class.strip_prefix("ml-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.left = margin;
+        }
+
+        if let Some(class) = class.strip_prefix("mr-") {
+            let margin = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+            style.margin.right = margin;
         }
 
         if let Some(class) = class.strip_prefix("rounded-") {

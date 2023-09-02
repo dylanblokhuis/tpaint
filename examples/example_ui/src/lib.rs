@@ -20,16 +20,14 @@ pub fn app(cx: Scope) -> Element {
 
     render! {
         view {
-            class: "flex-col w-full h-full bg-red-200",
-
-
+            class: "flex-col w-full h-full bg-red-200 p-10",
 
             Input {
                 name: "input1",
             }
 
             view {
-                class: "w-100 h-100 bg-red-500 hover:bg-red-900",
+                class: "w-100 h-100 bg-red-500 hover:bg-red-900 mt-10",
                 onclick: move |_| {
                     println!("Clicked");
                 },

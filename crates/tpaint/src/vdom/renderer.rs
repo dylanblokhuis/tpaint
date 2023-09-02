@@ -1,17 +1,14 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, Rect, TessellationOptions, TextureId,
-    TextureManager, Vec2, WHITE_UV,
+    ClippedPrimitive, ClippedShape, Color32, Fonts, TessellationOptions, TextureId, TextureManager,
+    Vec2, WHITE_UV,
 };
 
 use taffy::{prelude::Size, Taffy};
 use winit::dpi::PhysicalSize;
 
-use super::{
-    tailwind::{StyleState, Tailwind},
-    Node, ScreenDescriptor, VDom, MAX_CHILDREN,
-};
+use super::{tailwind::StyleState, Node, ScreenDescriptor, VDom, MAX_CHILDREN};
 
 pub struct Renderer {
     pub screen_descriptor: ScreenDescriptor,

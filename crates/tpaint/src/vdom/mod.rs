@@ -3,14 +3,14 @@ pub mod tailwind;
 mod renderer;
 
 use std::{
-    sync::{Arc, Mutex}, fmt::Debug, ops::Deref, env,
+    sync::{Arc, Mutex}, fmt::Debug, ops::Deref,
 };
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
-use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2};
+use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
@@ -612,6 +612,14 @@ impl DomEventLoop {
                 self.on_keyboard_input(input)
             }
 
+            WindowEvent::ReceivedCharacter(c) => {
+                let focused = self.vdom.lock().unwrap().focused;
+                if let Some(node_id) = focused {
+                    self.send_event_to_element(node_id, "input", Arc::new(events::Event::Text(events::Text(*c))));
+                }
+                false
+            }
+
             WindowEvent::Focused(focused) => {
                 self.keyboard_state.modifiers = events::Modifiers::default();
                 if !focused {
@@ -632,25 +640,30 @@ impl DomEventLoop {
         let mut vdom = self.vdom.lock().unwrap();
         let root_id = vdom.get_root_id();
         let mut elements = smallvec![];
-        vdom.traverse_tree_with_parent(root_id, None, &mut |node, parent| {
-            let node_id = node.styling.node.unwrap();
-            let layout = self.renderer.taffy.layout(node_id).unwrap();
-            let absolute_location = if let Some(parent) = parent {
-                let parent_layout = self.renderer.taffy.layout(parent.styling.node.unwrap()).unwrap();
-                epaint::Vec2::new(parent_layout.location.x, parent_layout.location.y) + epaint::Vec2::new(layout.location.x, layout.location.y)
-            } else {
-                epaint::Vec2::new(layout.location.x, layout.location.y)
+        
+        vdom.traverse_tree_with_parent_and_data(
+            root_id,
+            None,
+            &Vec2::ZERO,
+            &mut |node, _parent, parent_location_offset| {
+            let Some(node_id) = node.styling.node else {
+                return (false, *parent_location_offset);
             };
 
-            if translated_mouse_pos.x >= absolute_location.x
-                && translated_mouse_pos.x <= absolute_location.x + layout.size.width
-                && translated_mouse_pos.y >= absolute_location.y
-                && translated_mouse_pos.y <= absolute_location.y + layout.size.height
+            let layout = self.renderer.taffy.layout(node_id).unwrap();
+            let location = *parent_location_offset
+                + epaint::Vec2::new(layout.location.x, layout.location.y);
+
+
+            if translated_mouse_pos.x >= location.x
+                && translated_mouse_pos.x <= location.x + layout.size.width
+                && translated_mouse_pos.y >= location.y
+                && translated_mouse_pos.y <= location.y + layout.size.height
             {
                 elements.push(node.id);            
             }
 
-            true
+            (true, location)
         });
 
         vdom.hovered = elements.clone();
@@ -759,6 +772,7 @@ impl DomEventLoop {
         self.send_event_to_element(node_id, "focus", Arc::new(events::Event::Focus(Focus)));
     }
 
+
     fn on_keyboard_input(
         &mut self,
         input: &winit::event::KeyboardInput,
@@ -771,7 +785,7 @@ impl DomEventLoop {
             return false;
         };
 
-        if key == Key::Backspace && input.state == winit::event::ElementState::Pressed {
+        if key == Key::F12 && input.state == winit::event::ElementState::Pressed{
             self.debug_print_tree();
         }
 

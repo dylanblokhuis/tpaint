@@ -29,48 +29,48 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         },
     );
 
-    let handle_keydown = move |event: Event<crate::vdom::events::KeyInput>| {
-        match event.key.name() {
-            "Backspace" => {
-                if *cursor_pos.get() > 0 {
-                    let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
-                    chars.remove(cursor_pos - 1);
-                    text.set(chars.iter().collect());
-                    cursor_pos.set(cursor_pos - 1);
-                }
-            }
-            "Delete" => {
-                if *cursor_pos.get() < text.borrow_mut().len() {
-                    let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
-                    chars.remove(*cursor_pos.get());
-                    text.set(chars.iter().collect());
-                }
-            }
-            "Left" => {
-                if *cursor_pos.get() > 0 {
-                    cursor_pos.set(cursor_pos - 1);
-                }
-            }
-            "Right" => {
-                if *cursor_pos.get() < text.borrow_mut().len() {
-                    cursor_pos.set(cursor_pos + 1);
-                }
-            }
-            "Space" => {
+    let handle_keydown = move |event: Event<crate::vdom::events::KeyInput>| match event.key.name() {
+        "Backspace" => {
+            if *cursor_pos.get() > 0 {
                 let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
-                chars.insert(*cursor_pos.get(), ' ');
+                chars.remove(cursor_pos - 1);
                 text.set(chars.iter().collect());
-                cursor_pos.set(cursor_pos + 1);
+                cursor_pos.set(cursor_pos - 1);
             }
-            key if key.len() == 1 => {
-                // assuming single character input
-                let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
-                chars.insert(*cursor_pos.get(), key.chars().next().unwrap());
-                text.set(chars.iter().collect());
-                cursor_pos.set(cursor_pos + 1);
-            }
-            _ => {}
         }
+        "Delete" => {
+            if *cursor_pos.get() < text.borrow_mut().len() {
+                let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
+                chars.remove(*cursor_pos.get());
+                text.set(chars.iter().collect());
+            }
+        }
+        "Left" => {
+            if *cursor_pos.get() > 0 {
+                cursor_pos.set(cursor_pos - 1);
+            }
+        }
+        "Right" => {
+            if *cursor_pos.get() < text.borrow_mut().len() {
+                cursor_pos.set(cursor_pos + 1);
+            }
+        }
+
+        _ => {}
+    };
+
+    let handle_input = move |event: Event<crate::vdom::events::Text>| {
+        // backspace and delete
+        if event.0 == '\u{8}' || event.0 == '\u{7f}' {
+            return;
+        }
+
+        println!("{:?}", event.0);
+
+        let mut chars = text.borrow_mut().chars().collect::<Vec<_>>();
+        chars.insert(*cursor_pos.get(), event.0);
+        text.set(chars.iter().collect());
+        cursor_pos.set(cursor_pos + 1);
     };
 
     let cursor = if *is_focused.get() && *cursor_visible.get() {
@@ -81,8 +81,9 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
 
     render! {
       view {
-        class: "{cx.props.name} focus:border-2 focus:border-black bg-white hover:bg-blue-300 w-140 h-100",
+        class: "{cx.props.name} focus:border-2 border-1 border-gray-300 focus:border-black bg-white hover:bg-blue-300 min-w-100 h-32 p-5 rounded-5 flex-col justify-center",
         onkeydown: handle_keydown,
+        oninput: handle_input,
         onfocus: move |_| {
           cursor_blinking.cancel(cx);
           cursor_blinking.restart();

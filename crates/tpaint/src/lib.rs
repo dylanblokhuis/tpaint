@@ -89,6 +89,11 @@ pub mod prelude {
             ];
 
             impl_event! [
+                crate::vdom::events::Text;
+                oninput
+            ];
+
+            impl_event! [
                 crate::vdom::events::KeyInput;
                 onkeydown
                 onkeyup
