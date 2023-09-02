@@ -1,8 +1,8 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, TessellationOptions, TextureId, TextureManager,
-    Vec2, WHITE_UV,
+    ClippedPrimitive, ClippedShape, Color32, Fonts, Rect, TessellationOptions, TextureId,
+    TextureManager, Vec2, WHITE_UV,
 };
 
 use taffy::{prelude::Size, Taffy};
@@ -10,10 +10,8 @@ use winit::dpi::PhysicalSize;
 
 use super::{
     tailwind::{StyleState, Tailwind},
-    Node, NodeId, ScreenDescriptor, VDom, MAX_CHILDREN,
+    Node, ScreenDescriptor, VDom, MAX_CHILDREN,
 };
-
-pub const FOCUS_BORDER_WIDTH: f32 = 2.0;
 
 pub struct Renderer {
     pub screen_descriptor: ScreenDescriptor,
@@ -62,52 +60,41 @@ impl Renderer {
 
         let taffy = &mut self.taffy;
         let hovered = vdom.hovered.clone();
+        let focused = vdom.focused;
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
+            let style_state = StyleState {
+                hovered: hovered.contains(&node.id),
+                focused: focused.map(|id| id == node.id).unwrap_or(false),
+            };
+
             match &(*node.tag) {
                 "text" => {
-                    let Some(text) = node.attrs.get("value") else {
-                        return true;
-                    };
-
-                    let styling = node.styling.get_or_insert(Tailwind::default());
-                    styling.set_text_styling(
-                        text,
+                    node.styling.set_text_styling(
+                        node.attrs.get("value").unwrap_or(&String::new()),
                         taffy,
                         &self.fonts,
-                        parent.unwrap().styling.as_ref().unwrap(),
+                        &parent.unwrap().styling,
                     );
                 }
                 #[cfg(feature = "images")]
                 "image" => {
-                    let Some(src_attr) = node.attrs.get("src") else {
-                        return true;
-                    };
-
-                    let styling = node.styling.get_or_insert(Tailwind::default());
-                    styling
+                    node.styling
                         .set_styling(
                             taffy,
                             node.attrs.get("class").unwrap_or(&String::new()),
-                            &StyleState {
-                                hovered: hovered.contains(&node.id),
-                                focused: false,
-                            },
+                            &style_state,
                         )
-                        .set_texture(taffy, src_attr, &mut self.tex_manager);
+                        .set_texture(
+                            taffy,
+                            node.attrs.get("src").unwrap_or(&String::new()),
+                            &mut self.tex_manager,
+                        );
                 }
                 _ => {
-                    let Some(class_attr) = node.attrs.get("class") else {
-                        return true;
-                    };
-
-                    let styling = node.styling.get_or_insert(Tailwind::default());
-                    styling.set_styling(
+                    node.styling.set_styling(
                         taffy,
-                        class_attr,
-                        &StyleState {
-                            hovered: hovered.contains(&node.id),
-                            focused: false,
-                        },
+                        node.attrs.get("class").unwrap_or(&String::new()),
+                        &style_state,
                     );
                 }
             }
@@ -117,10 +104,7 @@ impl Renderer {
 
         // set all the newly created leaf nodes to their parents
         vdom.traverse_tree(root_id, &mut |node| {
-            let Some(styling) = &node.styling else {
-                return true;
-            };
-            let parent_id = styling.node.unwrap();
+            let parent_id = node.styling.node.unwrap();
             let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
             let mut count = 0; // Keep track of how many child_ids we've filled
 
@@ -129,10 +113,10 @@ impl Renderer {
                     log::error!("Max children reached for node {:?}", node);
                     break;
                 }
-                if let Some(child_styling) = &vdom.nodes.get(*child).unwrap().styling {
-                    child_ids[i] = child_styling.node.unwrap();
-                    count += 1;
-                }
+
+                let node = vdom.nodes.get(*child).unwrap();
+                child_ids[i] = node.styling.node.unwrap();
+                count += 1;
             }
 
             taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
@@ -140,10 +124,9 @@ impl Renderer {
         });
 
         let node = vdom.nodes.get(root_id).unwrap();
-        let styling = node.styling.as_ref().unwrap();
         taffy
             .compute_layout(
-                styling.node.unwrap(),
+                node.styling.node.unwrap(),
                 Size {
                     width: taffy::style::AvailableSpace::Definite(
                         self.screen_descriptor.size.width as f32,
@@ -163,39 +146,41 @@ impl Renderer {
         let mut shapes = Vec::with_capacity(vdom.nodes.len());
         let root_id = vdom.get_root_id();
 
-        vdom.traverse_tree_with_parent(root_id, None, &mut |node, parent| {
-            let Some(styling) = &node.styling else {
-                return true;
-            };
-            let taffy_id = styling.node.unwrap();
-            let layout = self.taffy.layout(taffy_id).unwrap();
-            let location = if let Some(parent) = parent {
-                let parent_layout = self
-                    .taffy
-                    .layout(parent.styling.as_ref().unwrap().node.unwrap())
-                    .unwrap();
-                epaint::Vec2::new(parent_layout.location.x, parent_layout.location.y)
-                    + epaint::Vec2::new(layout.location.x, layout.location.y)
-            } else {
-                epaint::Vec2::new(layout.location.x, layout.location.y)
-            };
+        vdom.traverse_tree_with_parent_and_data(
+            root_id,
+            None,
+            &Vec2::ZERO,
+            &mut |node, parent, parent_location_offset| {
+                let taffy_id = node.styling.node.unwrap();
+                let layout = self.taffy.layout(taffy_id).unwrap();
+                let location = *parent_location_offset
+                    + epaint::Vec2::new(layout.location.x, layout.location.y);
 
-            match &(*node.tag) {
-                "text" => {
-                    shapes.push(self.get_text_shape(node, parent.unwrap(), layout, &location));
-                }
-                _ => {
-                    shapes.push(self.get_rect_shape(node, vdom, styling, layout, &location));
-                }
-            }
+                match &(*node.tag) {
+                    "text" => {
+                        let parent = parent.unwrap();
+                        let shape = self.get_text_shape(node, parent, layout, &location);
 
-            shapes.push(if node.tag == "text".into() {
-                self.get_text_shape(node, parent.unwrap(), layout, &location)
-            } else {
-                self.get_rect_shape(node, vdom, styling, layout, &location)
-            });
-            true
-        });
+                        if let Some(cursor) = parent.attrs.get("cursor") {
+                            let epaint::Shape::Text(text_shape) = &shape.shape else {
+                                unreachable!();
+                            };
+
+                            if let Ok(cursor) = str::parse::<usize>(cursor) {
+                                shapes.push(self.get_cursor_shape(text_shape, cursor));
+                            }
+                        }
+
+                        shapes.push(shape);
+                    }
+                    _ => {
+                        shapes.push(self.get_rect_shape(node, layout, &location));
+                    }
+                }
+
+                (true, location)
+            },
+        );
 
         let texture_delta = {
             let font_image_delta = self.fonts.font_image_delta();
@@ -232,9 +217,9 @@ impl Renderer {
         _layout: &taffy::prelude::Layout,
         location: &Vec2,
     ) -> ClippedShape {
-        let parent = parent_node.styling.as_ref().unwrap();
-        let _styling = node.styling.as_ref().unwrap();
+        let parent = &parent_node.styling;
 
+        // todo: currently it just uses the generated epaint layout, should probably use the taffy layout
         let shape = epaint::Shape::text(
             &self.fonts,
             epaint::Pos2 {
@@ -253,29 +238,53 @@ impl Renderer {
         }
     }
 
+    fn get_cursor_shape(&self, text_shape: &epaint::TextShape, cursor_pos: usize) -> ClippedShape {
+        let rect = text_shape
+            .galley
+            .pos_from_cursor(&epaint::text::cursor::Cursor {
+                pcursor: epaint::text::cursor::PCursor {
+                    paragraph: 0,
+                    offset: cursor_pos,
+                    prefer_next_row: false,
+                },
+                ..Default::default()
+            });
+
+        let mut rect = rect;
+
+        rect.min.x += text_shape.pos.x;
+        rect.max.x += text_shape.pos.x;
+        rect.min.y += text_shape.pos.y;
+        rect.max.y += text_shape.pos.y;
+
+        rect.min.x -= 0.5;
+        rect.max.x += 0.5;
+
+        ClippedShape {
+            clip_rect: rect,
+            shape: epaint::Shape::Rect(epaint::RectShape {
+                rect,
+                rounding: epaint::Rounding::ZERO,
+                fill: Color32::BLACK,
+                stroke: epaint::Stroke::default(),
+                fill_texture_id: TextureId::default(),
+                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+            }),
+        }
+    }
+
     fn get_rect_shape(
         &self,
         node: &Node,
-        vdom: &VDom,
-        styling: &Tailwind,
         layout: &taffy::prelude::Layout,
         location: &Vec2,
     ) -> ClippedShape {
-        let focused = if let Some(focused) = vdom.focused {
-            focused
-        } else {
-            NodeId::default()
-        };
-        let border_width = if focused == node.id {
-            FOCUS_BORDER_WIDTH
-        } else {
-            styling.border.width
-        };
+        let styling = &node.styling;
         let rounding = styling.border.radius;
-        let x_start = location.x + border_width / 2.0;
-        let y_start = location.y + border_width / 2.0;
-        let x_end: f32 = location.x + layout.size.width - border_width / 2.0;
-        let y_end: f32 = location.y + layout.size.height - border_width / 2.0;
+        let x_start = location.x + styling.border.width / 2.0;
+        let y_start = location.y + styling.border.width / 2.0;
+        let x_end: f32 = location.x + layout.size.width - styling.border.width / 2.0;
+        let y_end: f32 = location.y + layout.size.height - styling.border.width / 2.0;
         let rect = epaint::Rect {
             min: epaint::Pos2 {
                 x: x_start,
@@ -293,7 +302,7 @@ impl Renderer {
                 styling.background_color
             },
             stroke: epaint::Stroke {
-                width: border_width,
+                width: styling.border.width,
                 color: styling.border.color,
             },
             fill_texture_id: if let Some(texture_id) = styling.texture_id {
@@ -314,4 +323,17 @@ impl Renderer {
             shape,
         }
     }
+
+    // fn get_cursor_shape(
+    //     &self,
+
+    // )
+
+    // pub fn print_taffy_tree(&self, taffy_root: taffy::prelude::NodeId, depth: usize) {
+    //     let root_node = self.taffy.layout(taffy_root).unwrap();
+
+    //     println!("{}{:?}", " ".repeat(depth), root_node);
+
+    //     dbg!(self.taf)
+    // }
 }

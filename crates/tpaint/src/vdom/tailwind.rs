@@ -63,11 +63,21 @@ impl Tailwind {
     pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) -> &mut Self {
         let classes = class.split_whitespace();
 
+        // todo: perhaps find a way to this lazily
         let mut style = Style::default();
+        self.background_color = Default::default();
+        self.border = Default::default();
+        self.text = Default::default();
+
         for class in classes {
             self.handle_class(&mut style, &COLORS, class);
             if state.hovered {
                 if let Some(class) = class.strip_prefix("hover:") {
+                    self.handle_class(&mut style, &COLORS, class);
+                }
+            }
+            if state.focused {
+                if let Some(class) = class.strip_prefix("focus:") {
                     self.handle_class(&mut style, &COLORS, class);
                 }
             }

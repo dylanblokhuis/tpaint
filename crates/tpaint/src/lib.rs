@@ -2,6 +2,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
+pub mod components;
 pub mod hooks;
 mod vdom;
 
@@ -60,11 +61,12 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
+            pub const cursor: AttributeDescription = ("cursor", None, false);
         }
 
         #[cfg(feature = "images")]
         pub struct image;
-        
+
         #[cfg(feature = "images")]
         impl image {
             pub const TAG_NAME: &'static str = "image";
@@ -84,6 +86,22 @@ pub mod prelude {
             impl_event! [
                 crate::vdom::events::PointerMove;
                 onmousemove
+            ];
+
+            impl_event! [
+                crate::vdom::events::KeyInput;
+                onkeydown
+                onkeyup
+            ];
+
+            impl_event! [
+                crate::vdom::events::Focus;
+                onfocus
+            ];
+
+            impl_event! [
+                crate::vdom::events::Blur;
+                onblur
             ];
         }
     }

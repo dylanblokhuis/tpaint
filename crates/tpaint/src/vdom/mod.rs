@@ -3,7 +3,7 @@ pub mod tailwind;
 mod renderer;
 
 use std::{
-    sync::{Arc, Mutex}, fmt::Debug, ops::Deref,
+    sync::{Arc, Mutex}, fmt::Debug, ops::Deref, env,
 };
 
 use dioxus::{
@@ -15,9 +15,12 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
 
+use taffy::Taffy;
 use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
 
-use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput}, renderer::Renderer};
+use crate::vdom::events::{KeyInput, translate_virtual_key_code};
+
+use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput, Focus, Blur, Key}, renderer::Renderer};
 
 new_key_type! { pub struct NodeId; }
 
@@ -26,14 +29,14 @@ pub struct Node {
     pub id: NodeId,
     pub tag: Arc<str>,
     pub attrs: FxHashMap<Arc<str>, String>,
-    pub children: SmallVec<[NodeId; 32]>,
-    styling: Option<Tailwind>,
+    pub children: SmallVec<[NodeId; MAX_CHILDREN]>,
+    styling: Tailwind,
 }
 
 pub struct VDom {
     pub nodes: HopSlotMap<NodeId, Node>,
-    templates: FxHashMap<String, SmallVec<[NodeId; 32]>>,
-    stack: SmallVec<[NodeId; 32]>,
+    templates: FxHashMap<String, SmallVec<[NodeId; MAX_CHILDREN]>>,
+    stack: SmallVec<[NodeId; MAX_CHILDREN]>,
     element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     event_listeners: FxHashMap<NodeId, SmallVec<[Arc<str>; 8]>>,
@@ -49,7 +52,7 @@ impl VDom {
             tag: "root".into(),
             attrs: FxHashMap::default(),
             children: smallvec![],
-            styling: None,
+            styling: Tailwind::default(),
         });
 
         let mut element_id_mapping = FxHashMap::default();
@@ -79,7 +82,7 @@ impl VDom {
     /// `[at, len)`. After the call, the original vector will be left containing
     /// the elements `[0, at)` with its previous capacity unchanged.
     ///
-    pub fn split_stack(&mut self, at: usize) -> SmallVec<[NodeId; 32]> {
+    pub fn split_stack(&mut self, at: usize) -> SmallVec<[NodeId; MAX_CHILDREN]> {
         if at > self.stack.len() {
             let len = self.stack.len();
             panic!("`at` split index (is {at}) should be <= len (is {len})");
@@ -89,12 +92,12 @@ impl VDom {
             let cap = self.stack.capacity();
             return std::mem::replace(
                 &mut self.stack,
-                SmallVec::<[NodeId; 32]>::with_capacity(cap),
+                SmallVec::<[NodeId; MAX_CHILDREN]>::with_capacity(cap),
             );
         }
 
         let other_len = self.stack.len() - at;
-        let mut other = SmallVec::<[NodeId; 32]>::with_capacity(other_len);
+        let mut other = SmallVec::<[NodeId; MAX_CHILDREN]>::with_capacity(other_len);
 
         unsafe {
             self.stack.set_len(at);
@@ -124,12 +127,10 @@ impl VDom {
         for edit in mutations.edits {
             match edit {
                 dioxus::core::Mutation::LoadTemplate { name, index, id } => {
-                    println!("{} {}", name, index);
-                    println!("{:?}", self.templates.keys());
-
                     let template_id = self.templates[name][index];
-                    self.stack.push(template_id);
-                    self.element_id_mapping.insert(id, template_id);
+                    let new_id = self.clone_node(template_id);
+                    self.stack.push(new_id);
+                    self.element_id_mapping.insert(id, new_id);
                 }
                 dioxus::core::Mutation::AssignId { path, id } => {
                     let node_id = self.load_path(path);
@@ -143,7 +144,6 @@ impl VDom {
                 }
                 dioxus::core::Mutation::AppendChildren { m, id } => {
                     let children = self.split_stack(self.stack.len() - m);
-                    println!("finding in map {:?}", id);
                     let parent = self.element_id_mapping[&id];
                     for child in children {
                         self.nodes[parent].children.push(child);
@@ -188,8 +188,49 @@ impl VDom {
                         );
                     }
                 }
-                _ => {}
+                dioxus::core::Mutation::HydrateText { path, value, id } => {
+                    let node_id = self.load_path(path);
+                    let key = self.get_tag_or_attr_key("value");
+                    self.element_id_mapping.insert(id, node_id);
+                    let node = self.nodes.get_mut(node_id).unwrap();
+                    node.attrs.insert(key, value.to_string());
+                }
+                dioxus::core::Mutation::SetText { value, id } => {
+                    let node_id = self.element_id_mapping[&id];
+                    let key = self.get_tag_or_attr_key("value");
+                    let node = self.nodes.get_mut(node_id).unwrap();
+                    node.attrs.insert(key, value.to_string());
+                }
+                _ => {
+                    todo!("unimplemented mutation {:?}", edit);
+                }
             }
+        }
+    }
+
+    /// useful for debugging
+    pub fn print_tree(&self, taffy: &Taffy, id: NodeId, depth: usize) {
+        let node = self.nodes.get(id).unwrap();
+        match &(*node.tag) {
+            "text" => {
+                if let Some(styling) = node.styling.clone().node {
+                    let layout = taffy.layout(styling).unwrap();
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), layout);
+                } else {
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), node.styling);
+                }
+            }
+            _ => {
+                if let Some(styling) = node.styling.clone().node {
+                    let layout = taffy.layout(styling).unwrap();
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("class").unwrap_or(&String::new()), layout);
+                } else {
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag,node.attrs.get("class").unwrap_or(&String::new()), node.styling);
+                }
+            }
+        }
+        for child in node.children.iter() {
+            self.print_tree(taffy,*child, depth + 1);
         }
     }
 
@@ -237,7 +278,7 @@ impl VDom {
                         })
                         .collect(),
                     children: smallvec![],
-                    styling: None,
+                    styling: Tailwind::default(),
                 };
                 let parent = self.nodes.insert_with_key(|id| {
                     node.id = id;
@@ -252,26 +293,78 @@ impl VDom {
                 parent
             }
             TemplateNode::Text { text } => {
-                let mut map = FxHashMap::default();
-                map.insert(self.get_tag_or_attr_key("value"), text.to_string());
+                let mut attrs = FxHashMap::default();
+                attrs.insert(self.get_tag_or_attr_key("value"), text.to_string());
 
                 self.nodes.insert_with_key(|id| { Node {
                     id,
                     tag: "text".into(),
                     children: smallvec![],
-                    attrs: map,
-                    styling: None,
+                    attrs,
+                    styling: Tailwind::default(),
                 }})
             }
 
-            _ => self.nodes.insert_with_key(|id| { Node {
-                id,
-                tag: "placeholder".into(),
-                children: smallvec![],
-                attrs: FxHashMap::default(),
-                styling: None,
-            }}),
+            TemplateNode::Dynamic { .. } => {
+                let mut attrs = FxHashMap::default();
+                attrs.insert(self.get_tag_or_attr_key("class"), String::new());
+
+                self.nodes.insert_with_key(|id| { Node {
+                    id,
+                    tag: "view".into(),
+                    children: smallvec![],
+                    attrs,
+                    styling: Tailwind::default(),
+                }})
+            }
+
+            TemplateNode::DynamicText { .. } => {
+                let mut attrs = FxHashMap::default();
+                attrs.insert(self.get_tag_or_attr_key("value"), String::new());
+                self.nodes.insert_with_key(|id| { Node {
+                    id,
+                    tag: "text".into(),
+                    children: smallvec![],
+                    attrs,
+                    styling: Tailwind::default(),
+                }})
+            },
         }
+    }
+
+    /// Clone node and its children, they all get new ids
+    pub fn clone_node(&mut self, node_id: NodeId) -> NodeId {
+        let node = self.nodes.get(node_id).unwrap();
+        let mut new_node = Node {
+            id: NodeId::default(),
+            tag: node.tag.clone(),
+            attrs: node.attrs.clone(),
+            children: smallvec![],
+            styling: node.styling.clone(),
+        };
+        let new_node_id = self.nodes.insert_with_key(|id| {
+            new_node.id = id;
+            new_node
+        });
+
+        let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
+        let mut count = 0;
+
+        let node = self.nodes.get(node_id).unwrap();
+        for child in node.children.iter() {
+            if count >= MAX_CHILDREN {
+                break;
+            }
+            children[count] = *child;
+            count += 1;
+        }
+
+        for i in 0..count {
+            let id = self.clone_node(children[i]);
+            self.nodes[new_node_id].children.push(id); 
+        }
+
+        new_node_id
     }
 
     pub fn get_root_id(&self) -> NodeId {
@@ -301,6 +394,28 @@ impl VDom {
 
         for child in node.children.iter() {
             self.traverse_tree_with_parent(*child, Some(id), callback);
+        }
+    }
+
+    fn traverse_tree_with_parent_and_data<T>(
+        &self,
+        id: NodeId,
+        parent_id: Option<NodeId>,
+        data: &T,
+        callback: &mut impl FnMut(&Node, Option<&Node>, &T) -> (bool, T)
+    ) {
+        let node = self.nodes.get(id).unwrap();
+        let (should_continue, new_data) = callback(node, 
+            parent_id.map(|id| self.nodes.get(id).unwrap()),
+            data
+        );
+    
+        if !should_continue {
+            return;
+        }
+    
+        for child in node.children.iter() {
+            self.traverse_tree_with_parent_and_data(*child, Some(id), &new_data, callback);
         }
     }
 
@@ -493,8 +608,15 @@ impl DomEventLoop {
                 false
             }
 
-            WindowEvent::Focused(_focused) => {
+            WindowEvent::KeyboardInput { input, .. } => {
+                self.on_keyboard_input(input)
+            }
+
+            WindowEvent::Focused(focused) => {
                 self.keyboard_state.modifiers = events::Modifiers::default();
+                if !focused {
+                    self.vdom.lock().unwrap().focused = None;
+                }
                 false
             }
 
@@ -502,8 +624,6 @@ impl DomEventLoop {
                 self.on_mouse_input(*state, *button)
             }
             
-
-            // WindowEvent::MouseInput { state, button, .. } => {}
             _ => false,
         }
     }
@@ -513,13 +633,10 @@ impl DomEventLoop {
         let root_id = vdom.get_root_id();
         let mut elements = smallvec![];
         vdom.traverse_tree_with_parent(root_id, None, &mut |node, parent| {
-            let Some(styling) = &node.styling else {
-                return true;
-            };
-            let node_id = styling.node.unwrap();
+            let node_id = node.styling.node.unwrap();
             let layout = self.renderer.taffy.layout(node_id).unwrap();
             let absolute_location = if let Some(parent) = parent {
-                let parent_layout = self.renderer.taffy.layout(parent.styling.as_ref().unwrap().node.unwrap()).unwrap();
+                let parent_layout = self.renderer.taffy.layout(parent.styling.node.unwrap()).unwrap();
                 epaint::Vec2::new(parent_layout.location.x, parent_layout.location.y) + epaint::Vec2::new(layout.location.x, layout.location.y)
             } else {
                 epaint::Vec2::new(layout.location.x, layout.location.y)
@@ -609,6 +726,7 @@ impl DomEventLoop {
                     }));
                     self.send_event_to_element(node_id, "click", data.clone());
                     self.send_event_to_element(node_id, "mousedown", data);
+                    self.set_focus(node_id);
                 }
                 winit::event::ElementState::Released => {
                     self.send_event_to_element(node_id, "mouseup", Arc::new(events::Event::PointerInput(PointerInput { 
@@ -622,5 +740,66 @@ impl DomEventLoop {
         }
 
         false
+    }
+
+    fn set_focus(
+        &mut self,
+        node_id: NodeId,
+    ) {
+        let focused = self.vdom.lock().unwrap().focused;
+        if let Some(focused) = focused {
+            // it's already focused, so we don't need to do anything
+            if focused == node_id {
+                return;
+            }
+
+            self.send_event_to_element(focused, "blur", Arc::new(events::Event::Blur(Blur)));
+        }
+        self.vdom.lock().unwrap().focused = Some(node_id);
+        self.send_event_to_element(node_id, "focus", Arc::new(events::Event::Focus(Focus)));
+    }
+
+    fn on_keyboard_input(
+        &mut self,
+        input: &winit::event::KeyboardInput,
+    ) -> bool {
+        let Some(key) = input.virtual_keycode else {
+            return false;
+        };
+
+        let Some(key) = translate_virtual_key_code(key) else {
+            return false;
+        };
+
+        if key == Key::Backspace && input.state == winit::event::ElementState::Pressed {
+            self.debug_print_tree();
+        }
+
+        let focused = self.vdom.lock().unwrap().focused;
+        if let Some(node_id) = focused {
+            match input.state {
+                winit::event::ElementState::Pressed => {
+                    self.send_event_to_element(node_id, "keydown", Arc::new(events::Event::Key(KeyInput {
+                        key,
+                        modifiers: self.keyboard_state.modifiers,
+                        pressed: true,
+                    })));
+                }
+                winit::event::ElementState::Released => {
+                    self.send_event_to_element(node_id, "keyup", Arc::new(events::Event::Key(KeyInput {
+                        key,
+                        modifiers: self.keyboard_state.modifiers,
+                        pressed: false,
+                    })));
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn debug_print_tree(&self) {
+        let vdom = self.vdom.lock().unwrap();
+        vdom.print_tree(&self.renderer.taffy, vdom.get_root_id(), 0);
     }
 }
