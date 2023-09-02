@@ -56,12 +56,21 @@ pub mod prelude {
         pub type AttributeDescription = (&'static str, Option<&'static str>, bool);
 
         pub struct view;
-
         impl view {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
-            #[allow(non_upper_case_globals)]
             pub const class: AttributeDescription = ("class", None, false);
+        }
+
+        #[cfg(feature = "images")]
+        pub struct image;
+        
+        #[cfg(feature = "images")]
+        impl image {
+            pub const TAG_NAME: &'static str = "image";
+            pub const NAME_SPACE: Option<&'static str> = None;
+            pub const class: AttributeDescription = ("class", None, false);
+            pub const src: AttributeDescription = ("src", None, false);
         }
 
         pub mod events {

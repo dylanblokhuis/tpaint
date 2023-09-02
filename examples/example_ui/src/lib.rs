@@ -51,8 +51,8 @@ pub fn app(cx: Scope) -> Element {
                 class: "w-100 h-100 rounded-{progress} bg-indigo-500",
             }
 
-            // img {
-            //     class: "w-200 rounded-{progress}",
+            // image {
+            //     class: "w-200",
             //     src: "../../example_ui/assets/placeholder.png"
             // }
 

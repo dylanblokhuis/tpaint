@@ -1,8 +1,8 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Fonts, TessellationOptions, TextureId, TextureManager,
-    Vec2, WHITE_UV,
+    ClippedPrimitive, ClippedShape, Color32, ColorImage, Fonts, TessellationOptions, TextureId,
+    TextureManager, Vec2, WHITE_UV,
 };
 
 use taffy::{prelude::Size, Taffy};
@@ -10,7 +10,7 @@ use winit::dpi::PhysicalSize;
 
 use super::{
     tailwind::{StyleState, Tailwind},
-    NodeId, ScreenDescriptor, VDom, MAX_CHILDREN, Node,
+    Node, NodeId, ScreenDescriptor, VDom, MAX_CHILDREN,
 };
 
 pub const FOCUS_BORDER_WIDTH: f32 = 2.0;
@@ -23,7 +23,11 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(window_size: PhysicalSize<u32>, pixels_per_point: f32,  definitions: FontDefinitions) -> Renderer {
+    pub fn new(
+        window_size: PhysicalSize<u32>,
+        pixels_per_point: f32,
+        definitions: FontDefinitions,
+    ) -> Renderer {
         let fonts = Fonts::new(pixels_per_point, 1024, definitions);
         let mut tex_manager = TextureManager::default();
         let font_image_delta: Option<_> = fonts.font_image_delta();
@@ -59,48 +63,112 @@ impl Renderer {
         let taffy = &mut self.taffy;
         let hovered = vdom.hovered.clone();
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
-            if node.tag == "text".into() {
-                let mut styling = Tailwind::default();
-                styling.set_text_styling(
-                  node.attrs.get("value").unwrap(),
-                    taffy,
-                    &self.fonts,
-                    parent.unwrap().styling.as_ref().unwrap(),
-                );
-                node.styling = Some(styling);
+            match &(*node.tag) {
+                "text" => {
+                    let Some(text) = node.attrs.get("value") else {
+                        return true;
+                    };
 
-                return true;
-            }
+                    let styling = node.styling.get_or_insert(Tailwind::default());
+                    styling.set_text_styling(
+                        text,
+                        taffy,
+                        &self.fonts,
+                        parent.unwrap().styling.as_ref().unwrap(),
+                    );
+                }
+                #[cfg(feature = "images")]
+                "image" => {
+                    let Some(src_attr) = node.attrs.get("src") else {
+                        return true;
+                    };
 
-            let Some(class_attr) = node.attrs.get("class") else {
-                return true;
-            };
+                    println!("src_attr: {}", src_attr);
 
-            if let Some(styling) = &mut node.styling {
-                styling.set_styling(
-                    taffy,
-                    class_attr,
-                    &StyleState {
-                        hovered: hovered.contains(&node.id),
-                        focused: false,
-                    },
-                );
-            } else {
-                let mut styling: Tailwind = Tailwind::default();
-                styling.set_styling(
-                    taffy,
-                    class_attr,
-                    &StyleState {
-                        hovered: hovered.contains(&node.id),
-                        focused: false,
-                    },
-                );
-                node.styling = Some(styling);
+                    use usvg::TreeParsing;
+                    
+                    let mut path = std::path::PathBuf::new();
+                    path.push("assets");
+                    path.push(src_attr);
+
+                    let extension = path.extension().unwrap().to_str().unwrap();
+
+                    let id = if extension.contains("svg") {
+                        let opt = usvg::Options::default();
+                        let svg_bytes = std::fs::read(path).unwrap();
+                        let rtree = usvg::Tree::from_data(&svg_bytes, &opt)
+                            .map_err(|err| err.to_string())
+                            .expect("Failed to parse SVG file");
+
+                        let rtree = resvg::Tree::from_usvg(&rtree);
+                        let pixmap_size = rtree.size.to_int_size();
+                        let mut pixmap = resvg::tiny_skia::Pixmap::new(
+                            pixmap_size.width(),
+                            pixmap_size.height(),
+                        )
+                        .unwrap();
+                        rtree.render(resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+
+                        self.tex_manager.alloc(
+                            src_attr.clone(),
+                            epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
+                                [pixmap_size.width() as usize, pixmap_size.height() as usize],
+                                pixmap.data(),
+                            )),
+                            TextureOptions::LINEAR,
+                        )
+                    } else {
+                        let Ok(reader) = image::io::Reader::open(path.clone()) else {
+                            log::error!("Failed to open image: {}", path.display());
+                            return false;
+                        };
+                        let Ok(img) = reader.decode() else {
+                            log::error!("Failed to decode image: {}", path.display());
+                            return false;
+                        };
+                        let size = [img.width() as usize, img.height() as usize];
+                        let rgba = img.to_rgba8();
+
+                        self.tex_manager.alloc(
+                            src_attr.clone(),
+                            epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
+                                size, &rgba,
+                            )),
+                            TextureOptions::LINEAR,
+                        )
+                    };
+                
+                    let styling = node.styling.get_or_insert(Tailwind::default());
+                    styling.set_styling(
+                        taffy,
+                        node.attrs.get("class").or(Some(&String::new())).unwrap(),
+                        &StyleState {
+                            hovered: hovered.contains(&node.id),
+                            focused: false,
+                        },
+                    ).set_texture(taffy, id, &self.tex_manager);
+                }
+                _ => {
+                    let Some(class_attr) = node.attrs.get("class") else {
+                        return true;
+                    };
+
+                    let styling = node.styling.get_or_insert(Tailwind::default());
+                    styling.set_styling(
+                        taffy,
+                        class_attr,
+                        &StyleState {
+                            hovered: hovered.contains(&node.id),
+                            focused: false,
+                        },
+                    );
+                }
             }
 
             true
         });
 
+        // set all the newly created leaf nodes to their parents
         vdom.traverse_tree(root_id, &mut |node| {
             let Some(styling) = &node.styling else {
                 return true;
@@ -115,11 +183,12 @@ impl Renderer {
                     break;
                 }
                 if let Some(child_styling) = &vdom.nodes.get(*child).unwrap().styling {
+                    println!("child_styling: {:?}", child_styling.node);
                     child_ids[i] = child_styling.node.unwrap();
                     count += 1;
                 }
             }
-
+            
             taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
             true
         });
@@ -165,10 +234,19 @@ impl Renderer {
                 epaint::Vec2::new(layout.location.x, layout.location.y)
             };
 
+            match &(*node.tag) {
+                "text" => {
+                    shapes.push(self.get_text_shape(node, parent.unwrap(), layout, &location));
+                }
+                _ => {
+                    shapes.push(self.get_rect_shape(node, vdom, styling, layout, &location));
+                }
+            }
+
             shapes.push(if node.tag == "text".into() {
-              self.get_text_shape(node, parent.unwrap(),  layout, &location)
+                self.get_text_shape(node, parent.unwrap(), layout, &location)
             } else {
-              self.get_rect_shape(node, vdom, styling, layout, &location)
+                self.get_rect_shape(node, vdom, styling, layout, &location)
             });
             true
         });
@@ -202,28 +280,31 @@ impl Renderer {
     }
 
     fn get_text_shape(
-      &self,
-      node: &Node,
-      parent_node: &Node,
-      _layout: &taffy::prelude::Layout,
-      location: &Vec2,
+        &self,
+        node: &Node,
+        parent_node: &Node,
+        _layout: &taffy::prelude::Layout,
+        location: &Vec2,
     ) -> ClippedShape {
-      let parent = parent_node.styling.as_ref().unwrap();
-      let _styling = node.styling.as_ref().unwrap();
-        
-      let shape = epaint::Shape::text(
-        &self.fonts,
-        epaint::Pos2 {
-          x: location.x,
-          y: location.y,
-        },
-        parent.text.align,
-        node.attrs.get("value").unwrap(),
-        parent.text.font.clone(),
-        parent.text.color,
-      );
+        let parent = parent_node.styling.as_ref().unwrap();
+        let _styling = node.styling.as_ref().unwrap();
 
-      ClippedShape { clip_rect: shape.visual_bounding_rect(), shape }
+        let shape = epaint::Shape::text(
+            &self.fonts,
+            epaint::Pos2 {
+                x: location.x,
+                y: location.y,
+            },
+            parent.text.align,
+            node.attrs.get("value").unwrap(),
+            parent.text.font.clone(),
+            parent.text.color,
+        );
+
+        ClippedShape {
+            clip_rect: shape.visual_bounding_rect(),
+            shape,
+        }
     }
 
     fn get_rect_shape(
@@ -260,13 +341,25 @@ impl Renderer {
         let shape = epaint::Shape::Rect(epaint::RectShape {
             rect,
             rounding,
-            fill: styling.background_color,
+            fill: if let Some(_) = styling.texture_id {
+                Color32::WHITE
+            } else {
+                styling.background_color
+            },
             stroke: epaint::Stroke {
                 width: border_width,
                 color: styling.border.color,
             },
-            fill_texture_id: TextureId::default(),
-            uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+            fill_texture_id: if let Some(texture_id) = styling.texture_id {
+                texture_id
+            } else {
+                TextureId::default()
+            },
+            uv: if let Some(_) = styling.texture_id {
+                epaint::Rect::from_min_max(epaint::pos2(0.0, 0.0), epaint::pos2(1.0, 1.0))
+            } else {
+                epaint::Rect::from_min_max(WHITE_UV, WHITE_UV)
+            },
         });
         let clip = shape.visual_bounding_rect();
 

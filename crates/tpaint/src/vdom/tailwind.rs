@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use epaint::emath::Align2;
-use epaint::{Color32, Rounding, Fonts, FontId, FontFamily};
+use epaint::{Color32, Rounding, Fonts, FontId, FontFamily, TextureId, TextureManager};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::prelude::*;
@@ -48,9 +48,9 @@ impl Default for TextStyling {
 pub struct Tailwind {
     pub background_color: Color32,
     pub border: Border,
-    pub style: Style,
     pub node: Option<taffy::tree::NodeId>,
     pub text: TextStyling,
+    pub texture_id: Option<epaint::TextureId>,
 }
 
 pub struct StyleState {
@@ -59,7 +59,7 @@ pub struct StyleState {
 }
 
 impl Tailwind {
-    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) {
+    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) -> &mut Self {
         let classes = class.split_whitespace();
 
         let mut style = Style::default();
@@ -72,11 +72,55 @@ impl Tailwind {
             }
         }
 
-        if let Some(node) = self.node {
+        // if self.node == Default::default() {
+        //     self.node = None;
+        // }
+
+        if let Some(node) = self.node {        
             taffy.set_style(node, style).unwrap();
         } else {
             self.node = Some(taffy.new_leaf(style).unwrap());
         }
+
+        self
+    }
+
+    pub fn set_texture(&mut self, taffy: &mut Taffy, texture_id: TextureId, tex_manager: &TextureManager) {
+        self.texture_id = Some(texture_id);
+        let meta = tex_manager.meta(texture_id).unwrap();
+        let image_size = [meta.size[0] as f32, meta.size[1] as f32];
+        let aspect_ratio = image_size[0] as f32 / image_size[1] as f32;
+        // let mut style = taffy.style(
+        //     self.node.expect("set_image_default_sizing called before set_styling was called"),
+        // ).unwrap().clone();
+
+        // if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
+        //     style.size.width = Dimension::Length(image_size[0]);
+        //     style.size.height = Dimension::Length(image_size[1]);
+        // }
+        // // if we're scaling the height based on the new width
+        // else if style.size.width != Dimension::AUTO && style.size.height == Dimension::AUTO {
+        //     let new_width = match style.size.width {
+        //         Dimension::Length(val) => val,
+        //         _ => image_size[0], // use old width if it's not a length
+        //     };
+        //     style.size.height = Dimension::Length(new_width / aspect_ratio);
+        // }
+        // // if we're scaling the width based on the new height
+        // else if style.size.height != Dimension::AUTO && style.size.width == Dimension::AUTO {
+        //     let new_height = match style.size.height {
+        //         Dimension::Length(val) => val,
+        //         _ => image_size[1], // use old height if it's not a length
+        //     };
+        //     style.size.width = Dimension::Length(new_height * aspect_ratio);
+        // }
+
+        println!("Set texture {:?}", self.node);
+
+        // taffy.set_style(
+        //     self.node.expect("set_image_default_sizing called before set_styling was called"),
+        //     style,
+        // ).unwrap();
     }
 
     pub fn set_text_styling(&mut self, text: &str, taffy: &mut Taffy, fonts: &Fonts, parent: &Tailwind) {        

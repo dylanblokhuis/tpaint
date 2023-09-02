@@ -59,6 +59,7 @@ impl VDom {
         common_tags_and_attr_keys.insert("view".into());
         common_tags_and_attr_keys.insert("class".into());
         common_tags_and_attr_keys.insert("value".into());
+        common_tags_and_attr_keys.insert("image".into());
 
         VDom {
             nodes,
@@ -411,7 +412,7 @@ impl DomEventLoop {
             move || {
                 let mut vdom = VirtualDom::new(app);
                 let mutations = vdom.rebuild();
-                // dbg!(&mutations);
+                dbg!(&mutations);
                 render_vdom.lock().unwrap().apply_mutations(mutations);
 
                 tokio::runtime::Builder::new_current_thread()
