@@ -34,7 +34,7 @@ pub fn app(cx: Scope) -> Element {
             }
 
             view {
-                class: "w-100 h-100 bg-red-500",
+                class: "w-100 h-100 bg-red-500 hover:bg-red-900",
                 onclick: move |_| {
                     println!("Clicked");
                 },
@@ -51,10 +51,10 @@ pub fn app(cx: Scope) -> Element {
                 class: "w-100 h-100 rounded-{progress} bg-indigo-500",
             }
 
-            // image {
-            //     class: "w-200",
-            //     src: "../../example_ui/assets/placeholder.png"
-            // }
+            image {
+                class: "w-200 rounded-full",
+                src: "../../example_ui/assets/placeholder.png"
+            }
 
             view {
                 class: "text-20 text-red-500 bg-indigo-300",

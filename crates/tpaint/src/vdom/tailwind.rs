@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use epaint::emath::Align2;
-use epaint::{Color32, Rounding, Fonts, FontId, FontFamily, TextureId, TextureManager};
+use epaint::textures::TextureOptions;
+use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Rounding, TextureManager};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::prelude::*;
@@ -46,9 +47,9 @@ impl Default for TextStyling {
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Tailwind {
+    pub node: Option<taffy::tree::NodeId>,
     pub background_color: Color32,
     pub border: Border,
-    pub node: Option<taffy::tree::NodeId>,
     pub text: TextStyling,
     pub texture_id: Option<epaint::TextureId>,
 }
@@ -72,11 +73,7 @@ impl Tailwind {
             }
         }
 
-        // if self.node == Default::default() {
-        //     self.node = None;
-        // }
-
-        if let Some(node) = self.node {        
+        if let Some(node) = self.node {
             taffy.set_style(node, style).unwrap();
         } else {
             self.node = Some(taffy.new_leaf(style).unwrap());
@@ -85,45 +82,113 @@ impl Tailwind {
         self
     }
 
-    pub fn set_texture(&mut self, taffy: &mut Taffy, texture_id: TextureId, tex_manager: &TextureManager) {
-        self.texture_id = Some(texture_id);
-        let meta = tex_manager.meta(texture_id).unwrap();
-        let image_size = [meta.size[0] as f32, meta.size[1] as f32];
-        let aspect_ratio = image_size[0] as f32 / image_size[1] as f32;
-        // let mut style = taffy.style(
-        //     self.node.expect("set_image_default_sizing called before set_styling was called"),
-        // ).unwrap().clone();
+    pub fn set_texture(&mut self, taffy: &mut Taffy, src: &str, tex_manager: &mut TextureManager) {
+        use usvg::TreeParsing;
 
-        // if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
-        //     style.size.width = Dimension::Length(image_size[0]);
-        //     style.size.height = Dimension::Length(image_size[1]);
-        // }
-        // // if we're scaling the height based on the new width
-        // else if style.size.width != Dimension::AUTO && style.size.height == Dimension::AUTO {
-        //     let new_width = match style.size.width {
-        //         Dimension::Length(val) => val,
-        //         _ => image_size[0], // use old width if it's not a length
-        //     };
-        //     style.size.height = Dimension::Length(new_width / aspect_ratio);
-        // }
-        // // if we're scaling the width based on the new height
-        // else if style.size.height != Dimension::AUTO && style.size.width == Dimension::AUTO {
-        //     let new_height = match style.size.height {
-        //         Dimension::Length(val) => val,
-        //         _ => image_size[1], // use old height if it's not a length
-        //     };
-        //     style.size.width = Dimension::Length(new_height * aspect_ratio);
-        // }
+        let mut path = std::path::PathBuf::new();
+        path.push("assets");
+        path.push(src);
 
-        println!("Set texture {:?}", self.node);
+        if self.texture_id.is_some() {
+            self.set_aspect_ratio_layout(taffy, tex_manager);
+            return;
+        }
 
-        // taffy.set_style(
-        //     self.node.expect("set_image_default_sizing called before set_styling was called"),
-        //     style,
-        // ).unwrap();
+        let extension = path.extension().unwrap().to_str().unwrap();
+
+        let id = if extension.contains("svg") {
+            let opt = usvg::Options::default();
+            let svg_bytes = std::fs::read(&path).unwrap();
+            let rtree = usvg::Tree::from_data(&svg_bytes, &opt)
+                .map_err(|err| err.to_string())
+                .expect("Failed to parse SVG file");
+
+            let rtree = resvg::Tree::from_usvg(&rtree);
+            let pixmap_size = rtree.size.to_int_size();
+            let mut pixmap =
+                resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
+            rtree.render(resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+
+            tex_manager.alloc(
+                path.to_string_lossy().to_string(),
+                epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
+                    [pixmap_size.width() as usize, pixmap_size.height() as usize],
+                    pixmap.data(),
+                )),
+                TextureOptions::LINEAR,
+            )
+        } else {
+            let Ok(reader) = image::io::Reader::open(&path) else {
+                log::error!("Failed to open image: {}", path.display());
+                return;
+            };
+            let Ok(img) = reader.decode() else {
+                log::error!("Failed to decode image: {}", path.display());
+                return;
+            };
+            let size = [img.width() as usize, img.height() as usize];
+            let rgba = img.to_rgba8();
+
+            tex_manager.alloc(
+                path.to_string_lossy().to_string(),
+                epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(size, &rgba)),
+                TextureOptions::LINEAR,
+            )
+        };
+
+        self.texture_id = Some(id);
+        self.set_aspect_ratio_layout(taffy, tex_manager);
     }
 
-    pub fn set_text_styling(&mut self, text: &str, taffy: &mut Taffy, fonts: &Fonts, parent: &Tailwind) {        
+    fn set_aspect_ratio_layout(&self, taffy: &mut Taffy, tex_manager: &TextureManager) {
+        let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
+        let image_size = [meta.size[0] as f32, meta.size[1] as f32];
+        let aspect_ratio = image_size[0] / image_size[1];
+        let mut style = taffy
+            .style(
+                self.node
+                    .expect("set_image_default_sizing called before set_styling was called"),
+            )
+            .unwrap()
+            .clone();
+
+        if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
+            style.size.width = Dimension::Length(image_size[0]);
+            style.size.height = Dimension::Length(image_size[1]);
+        }
+        // if we're scaling the height based on the new width
+        else if style.size.width != Dimension::AUTO && style.size.height == Dimension::AUTO {
+            let new_width = match style.size.width {
+                Dimension::Length(val) => val,
+                _ => image_size[0], // use old width if it's not a length
+            };
+            style.size.height = Dimension::Length(new_width / aspect_ratio);
+        }
+        // if we're scaling the width based on the new height
+        else if style.size.height != Dimension::AUTO && style.size.width == Dimension::AUTO {
+            let new_height = match style.size.height {
+                Dimension::Length(val) => val,
+                _ => image_size[1], // use old height if it's not a length
+            };
+            style.size.width = Dimension::Length(new_height * aspect_ratio);
+        }
+
+        taffy
+            .set_style(
+                self.node
+                    .expect("set_image_default_sizing called before set_styling was called"),
+                style,
+            )
+            .unwrap();
+    }
+
+    pub fn set_text_styling(
+        &mut self,
+        text: &str,
+        taffy: &mut Taffy,
+        fonts: &Fonts,
+        parent: &Tailwind,
+    ) {
         let shape = epaint::Shape::text(
             fonts,
             epaint::Pos2 { x: 0.0, y: 0.0 },

@@ -451,7 +451,7 @@ impl DomEventLoop {
     pub fn get_paint_info(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         let mut vdom = self.vdom.lock().unwrap();
         self.renderer.calculate_layout(&mut vdom);
-        self.renderer.get_paint_info(&mut vdom)
+        self.renderer.get_paint_info(&vdom)
     }
 
     /// bool: whether the window needs to be redrawn

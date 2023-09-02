@@ -1,8 +1,8 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, ColorImage, Fonts, TessellationOptions, TextureId,
-    TextureManager, Vec2, WHITE_UV,
+    ClippedPrimitive, ClippedShape, Color32, Fonts, TessellationOptions, TextureId, TextureManager,
+    Vec2, WHITE_UV,
 };
 
 use taffy::{prelude::Size, Taffy};
@@ -83,70 +83,17 @@ impl Renderer {
                         return true;
                     };
 
-                    println!("src_attr: {}", src_attr);
-
-                    use usvg::TreeParsing;
-                    
-                    let mut path = std::path::PathBuf::new();
-                    path.push("assets");
-                    path.push(src_attr);
-
-                    let extension = path.extension().unwrap().to_str().unwrap();
-
-                    let id = if extension.contains("svg") {
-                        let opt = usvg::Options::default();
-                        let svg_bytes = std::fs::read(path).unwrap();
-                        let rtree = usvg::Tree::from_data(&svg_bytes, &opt)
-                            .map_err(|err| err.to_string())
-                            .expect("Failed to parse SVG file");
-
-                        let rtree = resvg::Tree::from_usvg(&rtree);
-                        let pixmap_size = rtree.size.to_int_size();
-                        let mut pixmap = resvg::tiny_skia::Pixmap::new(
-                            pixmap_size.width(),
-                            pixmap_size.height(),
-                        )
-                        .unwrap();
-                        rtree.render(resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-
-                        self.tex_manager.alloc(
-                            src_attr.clone(),
-                            epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
-                                [pixmap_size.width() as usize, pixmap_size.height() as usize],
-                                pixmap.data(),
-                            )),
-                            TextureOptions::LINEAR,
-                        )
-                    } else {
-                        let Ok(reader) = image::io::Reader::open(path.clone()) else {
-                            log::error!("Failed to open image: {}", path.display());
-                            return false;
-                        };
-                        let Ok(img) = reader.decode() else {
-                            log::error!("Failed to decode image: {}", path.display());
-                            return false;
-                        };
-                        let size = [img.width() as usize, img.height() as usize];
-                        let rgba = img.to_rgba8();
-
-                        self.tex_manager.alloc(
-                            src_attr.clone(),
-                            epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
-                                size, &rgba,
-                            )),
-                            TextureOptions::LINEAR,
-                        )
-                    };
-                
                     let styling = node.styling.get_or_insert(Tailwind::default());
-                    styling.set_styling(
-                        taffy,
-                        node.attrs.get("class").or(Some(&String::new())).unwrap(),
-                        &StyleState {
-                            hovered: hovered.contains(&node.id),
-                            focused: false,
-                        },
-                    ).set_texture(taffy, id, &self.tex_manager);
+                    styling
+                        .set_styling(
+                            taffy,
+                            node.attrs.get("class").unwrap_or(&String::new()),
+                            &StyleState {
+                                hovered: hovered.contains(&node.id),
+                                focused: false,
+                            },
+                        )
+                        .set_texture(taffy, src_attr, &mut self.tex_manager);
                 }
                 _ => {
                     let Some(class_attr) = node.attrs.get("class") else {
@@ -183,12 +130,11 @@ impl Renderer {
                     break;
                 }
                 if let Some(child_styling) = &vdom.nodes.get(*child).unwrap().styling {
-                    println!("child_styling: {:?}", child_styling.node);
                     child_ids[i] = child_styling.node.unwrap();
                     count += 1;
                 }
             }
-            
+
             taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
             true
         });
@@ -341,7 +287,7 @@ impl Renderer {
         let shape = epaint::Shape::Rect(epaint::RectShape {
             rect,
             rounding,
-            fill: if let Some(_) = styling.texture_id {
+            fill: if styling.texture_id.is_some() {
                 Color32::WHITE
             } else {
                 styling.background_color
@@ -355,7 +301,7 @@ impl Renderer {
             } else {
                 TextureId::default()
             },
-            uv: if let Some(_) = styling.texture_id {
+            uv: if styling.texture_id.is_some() {
                 epaint::Rect::from_min_max(epaint::pos2(0.0, 0.0), epaint::pos2(1.0, 1.0))
             } else {
                 epaint::Rect::from_min_max(WHITE_UV, WHITE_UV)
