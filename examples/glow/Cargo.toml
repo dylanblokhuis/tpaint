@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 winit = "0.28.6"
-tpaint = { path = "../../crates/tpaint", features = ["images"] }
+tpaint = { path = "../../crates/tpaint" }
 tpaint_glow = { path = "../../crates/tpaint_glow" }
 glutin = "0.30.10"
 glutin-winit = "0.3.0"
