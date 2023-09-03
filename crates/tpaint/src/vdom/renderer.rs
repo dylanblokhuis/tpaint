@@ -162,9 +162,27 @@ impl Renderer {
                             let epaint::Shape::Text(text_shape) = &shape.shape else {
                                 unreachable!();
                             };
+                            let Some(selection_start) =
+                                parent.attrs.get("selection_start").or(Some(cursor))
+                            else {
+                                unreachable!();
+                            };
 
                             if let Ok(cursor) = str::parse::<usize>(cursor) {
-                                shapes.push(self.get_cursor_shape(text_shape, cursor));
+                                if parent.attrs.get("cursor_visible").unwrap_or(&String::new())
+                                    == "true"
+                                {
+                                    shapes.push(self.get_cursor_shape(text_shape, cursor));
+                                }
+
+                                if let Ok(selection_start) = str::parse::<usize>(selection_start) {
+                                    shapes.push(self.get_text_selection_shape(
+                                        text_shape,
+                                        cursor,
+                                        selection_start,
+                                        parent.styling.text.selection_color,
+                                    ));
+                                }
                             }
                         }
 
@@ -273,6 +291,77 @@ impl Renderer {
         }
     }
 
+    fn get_text_selection_shape(
+        &self,
+        text_shape: &epaint::TextShape,
+        cursor_pos: usize,
+        selection_start: usize,
+        selection_color: Color32,
+    ) -> ClippedShape {
+        let cursor_rect = text_shape
+            .galley
+            .pos_from_cursor(&epaint::text::cursor::Cursor {
+                pcursor: epaint::text::cursor::PCursor {
+                    paragraph: 0,
+                    offset: cursor_pos,
+                    prefer_next_row: false,
+                },
+                ..Default::default()
+            });
+
+        let selection_rect = text_shape
+            .galley
+            .pos_from_cursor(&epaint::text::cursor::Cursor {
+                pcursor: epaint::text::cursor::PCursor {
+                    paragraph: 0,
+                    offset: selection_start,
+                    prefer_next_row: false,
+                },
+                ..Default::default()
+            });
+
+        let mut rect = if cursor_pos > selection_start {
+            epaint::Rect::from_min_max(
+                epaint::Pos2 {
+                    x: selection_rect.min.x,
+                    y: selection_rect.min.y,
+                },
+                epaint::Pos2 {
+                    x: cursor_rect.max.x,
+                    y: cursor_rect.max.y,
+                },
+            )
+        } else {
+            epaint::Rect::from_min_max(
+                epaint::Pos2 {
+                    x: cursor_rect.min.x,
+                    y: cursor_rect.min.y,
+                },
+                epaint::Pos2 {
+                    x: selection_rect.max.x,
+                    y: selection_rect.max.y,
+                },
+            )
+        };
+
+        rect.min.x += text_shape.pos.x;
+        rect.max.x += text_shape.pos.x;
+        rect.min.y += text_shape.pos.y;
+        rect.max.y += text_shape.pos.y;
+
+        ClippedShape {
+            clip_rect: rect,
+            shape: epaint::Shape::Rect(epaint::RectShape {
+                rect,
+                rounding: epaint::Rounding::ZERO,
+                fill: selection_color,
+                stroke: epaint::Stroke::default(),
+                fill_texture_id: TextureId::default(),
+                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+            }),
+        }
+    }
+
     fn get_rect_shape(
         &self,
         node: &Node,
@@ -323,17 +412,4 @@ impl Renderer {
             shape,
         }
     }
-
-    // fn get_cursor_shape(
-    //     &self,
-
-    // )
-
-    // pub fn print_taffy_tree(&self, taffy_root: taffy::prelude::NodeId, depth: usize) {
-    //     let root_node = self.taffy.layout(taffy_root).unwrap();
-
-    //     println!("{}{:?}", " ".repeat(depth), root_node);
-
-    //     dbg!(self.taf)
-    // }
 }

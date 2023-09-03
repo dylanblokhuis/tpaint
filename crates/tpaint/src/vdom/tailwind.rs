@@ -30,6 +30,7 @@ pub struct TextStyling {
     pub color: Color32,
     pub align: Align2,
     pub font: FontId,
+    pub selection_color: Color32,
 }
 
 impl Default for TextStyling {
@@ -41,6 +42,7 @@ impl Default for TextStyling {
                 size: 16.0,
                 family: FontFamily::default(),
             },
+            selection_color: Color32::from_rgb(191, 219, 254),
         }
     }
 }
@@ -259,6 +261,12 @@ impl Tailwind {
 
             if let Ok(size) = class.parse::<f32>() {
                 self.text.font.size = size;
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("selection-") {
+            if let Some(color) = handle_color(class, colors) {
+                self.text.selection_color = color;
             }
         }
 

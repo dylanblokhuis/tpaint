@@ -75,8 +75,7 @@ fn main() {
         let _ = (&instance, &adapter);
 
         let mut redraw = || {
-            *control_flow = winit::event_loop::ControlFlow::Poll;
-
+            *control_flow = winit::event_loop::ControlFlow::Wait;
             let frame = surface
                 .get_current_texture()
                 .expect("Failed to acquire next swap chain texture");

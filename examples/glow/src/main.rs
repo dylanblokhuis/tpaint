@@ -161,34 +161,31 @@ fn main() {
 
     event_loop.run(move |event, _, control_flow| {
         let mut redraw = || {
-            *control_flow = winit::event_loop::ControlFlow::Poll;
-
-            {
-                unsafe {
-                    use glow::HasContext as _;
-                    gl.clear_color(clear_color[0], clear_color[1], clear_color[2], 1.0);
-                    gl.clear(glow::COLOR_BUFFER_BIT);
-                }
-
-                let (primitives, delta, screen_descriptor) = app.get_paint_info();
-
-                for (id, image_delta) in delta.set {
-                    painter.set_texture(id, &image_delta);
-                }
-
-                painter.paint_primitives(
-                    screen_descriptor.size.into(),
-                    screen_descriptor.pixels_per_point,
-                    &primitives,
-                );
-
-                for id in delta.free {
-                    painter.free_texture(id);
-                }
-
-                gl_window.swap_buffers().unwrap();
-                gl_window.window().set_visible(true);
+            *control_flow = winit::event_loop::ControlFlow::Wait;
+            unsafe {
+                use glow::HasContext as _;
+                gl.clear_color(clear_color[0], clear_color[1], clear_color[2], 1.0);
+                gl.clear(glow::COLOR_BUFFER_BIT);
             }
+
+            let (primitives, delta, screen_descriptor) = app.get_paint_info();
+
+            for (id, image_delta) in delta.set {
+                painter.set_texture(id, &image_delta);
+            }
+
+            painter.paint_primitives(
+                screen_descriptor.size.into(),
+                screen_descriptor.pixels_per_point,
+                &primitives,
+            );
+
+            for id in delta.free {
+                painter.free_texture(id);
+            }
+
+            gl_window.swap_buffers().unwrap();
+            gl_window.window().set_visible(true);
         };
 
         match event {
