@@ -199,24 +199,17 @@ impl Tailwind {
         fonts: &Fonts,
         parent: &Tailwind,
     ) {
-        let shape = epaint::Shape::text(
-            fonts,
-            epaint::Pos2 { x: 0.0, y: 0.0 },
-            epaint::emath::Align2::LEFT_TOP,
-            text,
+        let galley = fonts.layout_no_wrap(
+            text.to_string(),
             parent.text.font.clone(),
-            epaint::Color32::WHITE,
+            parent.text.color,
         );
-        let rect = shape.visual_bounding_rect();
-        let width = rect.width();
-
-        let font_pad_width = parent.text.font.size / 7.5;
-        let line_height = parent.text.font.size * 1.15;
+        let size = galley.size();
 
         let style = Style {
             size: Size {
-                width: Dimension::Length(width + font_pad_width),
-                height: Dimension::Length(line_height),
+                width: Dimension::Length(size.x),
+                height: Dimension::Length(size.y),
             },
             ..Default::default()
         };
@@ -262,6 +255,18 @@ impl Tailwind {
         if let Some(class) = class.strip_prefix("text-") {
             if let Some(color) = handle_color(class, colors) {
                 self.text.color = color;
+            }
+
+            if let Ok(size) = class.parse::<f32>() {
+                self.text.font.size = size;
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("font-") {
+            self.text.font.family = match class {
+                "sans" => FontFamily::Proportional,
+                "mono" => FontFamily::Monospace,
+                _ => FontFamily::default(),
             }
         }
 

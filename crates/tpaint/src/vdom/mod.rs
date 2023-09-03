@@ -654,7 +654,6 @@ impl DomEventLoop {
             let location = *parent_location_offset
                 + epaint::Vec2::new(layout.location.x, layout.location.y);
 
-
             if translated_mouse_pos.x >= location.x
                 && translated_mouse_pos.x <= location.x + layout.size.width
                 && translated_mouse_pos.y >= location.y
@@ -759,6 +758,15 @@ impl DomEventLoop {
         &mut self,
         node_id: NodeId,
     ) {
+        // check if its a text node
+        {
+            let vdom = self.vdom.lock().unwrap();
+            let node = vdom.nodes.get(node_id).unwrap();
+            if node.tag == "text".into() {
+                return;
+            }
+        }
+
         let focused = self.vdom.lock().unwrap().focused;
         if let Some(focused) = focused {
             // it's already focused, so we don't need to do anything

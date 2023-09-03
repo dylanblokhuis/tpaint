@@ -1,8 +1,8 @@
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, TessellationOptions, TextureId, TextureManager,
-    Vec2, WHITE_UV,
+    ClippedPrimitive, ClippedShape, Color32, Fonts, Rect, Shape, TessellationOptions, TextureId,
+    TextureManager, Vec2, WHITE_UV,
 };
 
 use taffy::{prelude::Size, Taffy};
@@ -211,23 +211,26 @@ impl Renderer {
         &self,
         node: &Node,
         parent_node: &Node,
-        _layout: &taffy::prelude::Layout,
+        layout: &taffy::prelude::Layout,
         location: &Vec2,
     ) -> ClippedShape {
         let parent = &parent_node.styling;
 
-        // todo: currently it just uses the generated epaint layout, should probably use the taffy layout
-        let shape = epaint::Shape::text(
-            &self.fonts,
+        let galley = self.fonts.layout_no_wrap(
+            node.attrs.get("value").unwrap().clone(),
+            parent.text.font.clone(),
+            parent.text.color,
+        );
+
+        let rect: Rect = Rect::from_min_size(
             epaint::Pos2 {
                 x: location.x,
                 y: location.y,
             },
-            parent.text.align,
-            node.attrs.get("value").unwrap(),
-            parent.text.font.clone(),
-            parent.text.color,
+            galley.size(),
         );
+
+        let shape = Shape::galley(rect.min, galley);
 
         ClippedShape {
             clip_rect: shape.visual_bounding_rect(),

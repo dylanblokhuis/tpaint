@@ -81,7 +81,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
 
     render! {
       view {
-        class: "{cx.props.name} focus:border-2 border-1 border-gray-300 focus:border-black bg-white hover:bg-blue-300 min-w-100 h-32 p-5 rounded-5 flex-col justify-center",
+        class: "{cx.props.name} focus:border-2 border-1 border-gray-300 focus:border-black bg-white min-w-100 h-32 p-5 rounded-5 flex-col justify-center text-20",
         onkeydown: handle_keydown,
         oninput: handle_input,
         onfocus: move |_| {
