@@ -223,7 +223,8 @@ impl Tailwind {
         let size = galley.size();
         let style = Style {
             size: Size {
-                width: Dimension::Length(size.x),
+                // the 0.5 makes selection fully work, should probably investigate further
+                width: Dimension::Length(size.x + 0.5),
                 height: Dimension::Length(size.y),
             },
 

@@ -276,7 +276,7 @@ impl Renderer {
             node.attrs.get("value").unwrap().clone(),
             parent.text.font.clone(),
             parent.text.color,
-            layout.size.width + 0.5,
+            layout.size.width,
         );
 
         let rect: Rect = Rect::from_min_size(
