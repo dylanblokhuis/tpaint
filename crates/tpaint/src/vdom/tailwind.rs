@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use epaint::emath::Align2;
 use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Rounding, TextureManager, Galley};
+use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Galley, Rounding, TextureManager};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::prelude::*;
@@ -203,13 +203,13 @@ impl Tailwind {
         parent: &Tailwind,
     ) -> Arc<Galley> {
         let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
-        let galley = fonts.layout(
+
+        fonts.layout(
             text.to_string(),
             parent.text.font.clone(),
             parent.text.color,
             max_width,
-        );
-        galley
+        )
     }
 
     pub fn set_text_styling(
@@ -226,7 +226,7 @@ impl Tailwind {
                 width: Dimension::Length(size.x),
                 height: Dimension::Length(size.y),
             },
-            
+
             ..Default::default()
         };
 

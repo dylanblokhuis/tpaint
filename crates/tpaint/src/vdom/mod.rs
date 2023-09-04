@@ -20,7 +20,7 @@ use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
 
 use crate::vdom::events::{KeyInput, translate_virtual_key_code};
 
-use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput, Focus, Blur, Key}, renderer::Renderer};
+use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput, Focus, Blur, Key, Drag}, renderer::Renderer};
 
 new_key_type! { pub struct NodeId; }
 
@@ -419,6 +419,45 @@ impl VDom {
         }
     }
 
+    fn traverse_tree_mut_with_parent_and_data<T>(&mut self, id: NodeId, parent_id: Option<NodeId>, data: &T, callback: &mut impl FnMut(&mut Node, Option<&Node>, &T) -> (bool, T)) {
+        let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
+        let mut count = 0;
+        
+        let data = { 
+            let (node, new_data) = if let Some(parent_id) = parent_id {
+                let [node, parent] = self.nodes.get_disjoint_mut([id, parent_id]).unwrap();
+                let (should_continue, new_data) = callback(node, Some(parent), data);
+                if !should_continue {
+                    return;
+                }
+                
+                (node, new_data)
+            } else {
+                let node: &mut Node = self.nodes.get_mut(id).unwrap();
+                let (should_continue, new_data) = callback(node, None, data);
+                if !should_continue {
+                    return;
+                }            
+                
+                (node, new_data)
+            };
+            
+            for (i, &child_id) in node.children.iter().enumerate() {
+                if i >= MAX_CHILDREN {
+                    break
+                }
+                children[i] = child_id;
+                count += 1;
+            }
+
+            new_data
+        };
+       
+        for i in 0..count {
+            self.traverse_tree_mut_with_parent_and_data(children[i], Some(id), &data, callback);
+        }
+    }
+
     fn traverse_tree_mut_with_parent(&mut self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&mut Node, Option<&Node>) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -496,6 +535,9 @@ pub struct ScreenDescriptor {
 pub struct CursorState {
     /// the already translated cursor position
     last_pos: Pos2,
+    cursor: epaint::text::cursor::Cursor,
+    drag_start_pos: Pos2,
+    is_button_down: bool,
 }
 
 #[derive(Clone, Default)]
@@ -639,11 +681,11 @@ impl DomEventLoop {
         }
     }
 
-    pub fn get_elements_on_pos(&self, translated_mouse_pos: Pos2) -> SmallVec<[NodeId; MAX_CHILDREN]> {
+    pub fn get_elements_on_pos(&mut self, translated_mouse_pos: Pos2) -> SmallVec<[NodeId; MAX_CHILDREN]> {
         let mut vdom = self.vdom.lock().unwrap();
         let root_id = vdom.get_root_id();
         let mut elements = smallvec![];
-        
+        let mut cursor: (epaint::text::cursor::Cursor, NodeId) = (epaint::text::cursor::Cursor::default(), NodeId::default());
         vdom.traverse_tree_with_parent_and_data(
             root_id,
             None,
@@ -664,30 +706,27 @@ impl DomEventLoop {
             {
                 elements.push(node.id);       
                 if node.tag == "text".into() {
-                    self.get_cursor_on_text_element(location, translated_mouse_pos, node, parent.unwrap());
+                    cursor = self.get_global_cursor(location, translated_mouse_pos, node, parent.unwrap());
                 }     
             }
 
             (true, location)
         });
 
+        self.cursor_state.cursor = cursor.0;
         vdom.hovered = elements.clone();
         elements
     }
 
-    pub fn get_cursor_on_text_element(&self, location: Vec2, translated_mouse_pos: Pos2,  node: &Node, parent: &Node) {    
-        if node.tag != "text".into() {
-            return;
-        }
-
-        let Some(text) = node.attrs.get("value") else {
-            return;
-        };
+    pub fn get_global_cursor(&self, location: Vec2, translated_mouse_pos: Pos2,  node: &Node, parent: &Node) -> (epaint::text::cursor::Cursor, NodeId) {    
+        let text = node.attrs.get("value").unwrap();
         let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
         let relative_mouse_pos = translated_mouse_pos - location;
+        println!("relative_mouse_pos {:?}", relative_mouse_pos);
         let cursor = galley.cursor_from_pos(relative_mouse_pos.to_vec2());
 
         println!("cursor {:?}", cursor);
+        (cursor, parent.id)
     }
 
     fn translate_mouse_pos(&self, pos_in_pixels: &PhysicalPosition<f64>) -> epaint::Pos2 {
@@ -723,6 +762,13 @@ impl DomEventLoop {
         
         for node_id in elements {
             self.send_event_to_element(node_id, "mousemove", Arc::new(events::Event::PointerMoved(PointerMove { pos })));
+            if self.cursor_state.is_button_down {
+                self.send_event_to_element(node_id, "drag", Arc::new(events::Event::Drag(Drag {
+                    current_position: pos, 
+                    start_position: self.cursor_state.drag_start_pos,
+                    cursor_position: self.cursor_state.cursor.pcursor.offset 
+                })));
+            }
         }
 
         // dioxus will request redraws so we don't need to
@@ -748,26 +794,36 @@ impl DomEventLoop {
             return false;
         };
         
+        self.cursor_state.is_button_down = state == winit::event::ElementState::Pressed;
+        if state == winit::event::ElementState::Pressed {
+            self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
+        }
+        
+        let pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
+            button,
+            pos: self.cursor_state.last_pos,
+            modifiers: self.keyboard_state.modifiers,
+            pressed: true,
+            cursor_position:self.cursor_state.cursor.pcursor.offset,
+        }));
+
+        let not_pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
+            button,
+            pos: self.cursor_state.last_pos,
+            modifiers: self.keyboard_state.modifiers,
+            pressed: false,
+            cursor_position:self.cursor_state.cursor.pcursor.offset,
+        }));
+
         for node_id in elements {
             match state {
                 winit::event::ElementState::Pressed => {
-                    let data = Arc::new(events::Event::PointerInput(PointerInput { 
-                        button,
-                        pos: self.cursor_state.last_pos,
-                        modifiers: self.keyboard_state.modifiers,
-                        pressed: true,
-                    }));
-                    self.send_event_to_element(node_id, "click", data.clone());
-                    self.send_event_to_element(node_id, "mousedown", data);
+                    self.send_event_to_element(node_id, "click", pressed_data.clone());
+                    self.send_event_to_element(node_id, "mousedown", pressed_data.clone());
                     self.set_focus(node_id);
                 }
                 winit::event::ElementState::Released => {
-                    self.send_event_to_element(node_id, "mouseup", Arc::new(events::Event::PointerInput(PointerInput { 
-                        button,
-                        pos: self.cursor_state.last_pos,
-                        modifiers: self.keyboard_state.modifiers,
-                        pressed: false,
-                    })));
+                    self.send_event_to_element(node_id, "mouseup", not_pressed_data.clone());
                 }
             }
         }
@@ -778,13 +834,13 @@ impl DomEventLoop {
     fn set_focus(
         &mut self,
         node_id: NodeId,
-    ) {
+    ) -> Option<NodeId> {
         // check if its a text node
         {
             let vdom = self.vdom.lock().unwrap();
             let node = vdom.nodes.get(node_id).unwrap();
             if node.tag == "text".into() {
-                return;
+                return None;
             }
         }
 
@@ -792,13 +848,14 @@ impl DomEventLoop {
         if let Some(focused) = focused {
             // it's already focused, so we don't need to do anything
             if focused == node_id {
-                return;
+                return Some(node_id);
             }
 
             self.send_event_to_element(focused, "blur", Arc::new(events::Event::Blur(Blur)));
         }
         self.vdom.lock().unwrap().focused = Some(node_id);
         self.send_event_to_element(node_id, "focus", Arc::new(events::Event::Focus(Focus)));
+        Some(node_id)
     }
 
 

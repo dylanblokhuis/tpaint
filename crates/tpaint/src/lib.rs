@@ -110,6 +110,11 @@ pub mod prelude {
                 crate::vdom::events::Blur;
                 onblur
             ];
+
+            impl_event! [
+                crate::vdom::events::Drag;
+                ondrag
+            ];
         }
     }
 }

@@ -64,7 +64,7 @@ impl Renderer {
                 focused: focused.map(|id| id == node.id).unwrap_or(false),
             };
 
-            match &(*node.tag) {                
+            match &(*node.tag) {
                 #[cfg(feature = "images")]
                 "image" => {
                     node.styling
@@ -85,10 +85,10 @@ impl Renderer {
                         node.attrs.get("class").unwrap_or(&String::new()),
                         &style_state,
                     );
-                },
+                }
 
                 "text" => {
-                    node.styling.set_styling(taffy, &"w-full".to_string(), &style_state);
+                    node.styling.set_styling(taffy, "w-full", &style_state);
                 }
 
                 _ => {
@@ -129,15 +129,16 @@ impl Renderer {
                 vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
                 Size {
                     width: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
+                        self.screen_descriptor.size.width as f32
+                            / self.screen_descriptor.pixels_per_point,
                     ),
                     height: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
+                        self.screen_descriptor.size.height as f32
+                            / self.screen_descriptor.pixels_per_point,
                     ),
                 },
             )
             .unwrap();
-
 
         // text pass
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
@@ -156,21 +157,21 @@ impl Renderer {
             return true;
         });
 
-        
         taffy
-        .compute_layout(
-            vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
-            Size {
-                width: taffy::style::AvailableSpace::Definite(
-                    self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
-                ),
-                height: taffy::style::AvailableSpace::Definite(
-                    self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
-                ),
-            },
-        )
-        .unwrap();
-            
+            .compute_layout(
+                vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
+                Size {
+                    width: taffy::style::AvailableSpace::Definite(
+                        self.screen_descriptor.size.width as f32
+                            / self.screen_descriptor.pixels_per_point,
+                    ),
+                    height: taffy::style::AvailableSpace::Definite(
+                        self.screen_descriptor.size.height as f32
+                            / self.screen_descriptor.pixels_per_point,
+                    ),
+                },
+            )
+            .unwrap();
     }
 
     pub fn get_paint_info(
@@ -271,7 +272,6 @@ impl Renderer {
     ) -> ClippedShape {
         let parent = &parent_node.styling;
 
-        println!("layout {:?}", layout.size);
         let galley = self.fonts.layout(
             node.attrs.get("value").unwrap().clone(),
             parent.text.font.clone(),

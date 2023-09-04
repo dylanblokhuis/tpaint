@@ -38,7 +38,6 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
 
     let is_all_selected = selection_start.get() == cursor_pos.get();
 
-    
     let handle_keydown = move |event: Event<crate::vdom::events::KeyInput>| match event.key.name() {
         "Backspace" => {
             if *cursor_pos.get() > 0 && is_all_selected {
@@ -135,8 +134,6 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
 
         "A" => {
-            println!("{:?}", event.modifiers);
-
             if event.modifiers.command {
                 cursor_pos.set(text.len());
                 selection_start.set(0);
@@ -204,13 +201,17 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
     };
 
-    let selection_start = *selection_start.get() as i64;
-    // println!("cursor: {}  start: {}", cursor_pos, selection_start);
+    let handle_click = move |event: Event<crate::vdom::events::PointerInput>| {
+        if event.modifiers.shift {
+            cursor_pos.set(event.cursor_position);
+        } else {
+            cursor_pos.set(event.cursor_position);
+            selection_start.set(event.cursor_position);
+        }
+    };
 
-    let cursor = if *is_focused.get() {
-        *cursor_pos.get() as i64
-    } else {
-        -1
+    let handle_drag = move |event: Event<crate::vdom::events::Drag>| {
+        cursor_pos.set(event.cursor_position);
     };
 
     render! {
@@ -226,10 +227,13 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         onblur: move |_| {
           cursor_blinking.cancel(cx);
           is_focused.set(false);
+          selection_start.set(*cursor_pos.get());
         },
-        cursor: cursor,
-        cursor_visible: *cursor_visible.get(),
-        selection_start: selection_start,
+        onclick: handle_click,
+        ondrag: handle_drag,
+        cursor: *cursor_pos.get() as i64,
+        cursor_visible: *cursor_visible.get() && *is_focused.get(),
+        selection_start: *selection_start.get() as i64,
 
         "{text}"
       }
