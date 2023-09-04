@@ -140,7 +140,7 @@ impl Renderer {
             )
             .unwrap();
 
-        // text pass
+        // text pass, todo: DRY this
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
             match &*node.tag {
                 "text" => {
