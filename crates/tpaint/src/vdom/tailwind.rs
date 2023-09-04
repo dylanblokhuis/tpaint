@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use epaint::emath::Align2;
 use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Rounding, TextureManager};
+use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Rounding, TextureManager, Galley};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::prelude::*;
@@ -194,6 +195,23 @@ impl Tailwind {
             .unwrap();
     }
 
+    pub fn get_font_galley(
+        &self,
+        text: &str,
+        taffy: &Taffy,
+        fonts: &Fonts,
+        parent: &Tailwind,
+    ) -> Arc<Galley> {
+        let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
+        let galley = fonts.layout(
+            text.to_string(),
+            parent.text.font.clone(),
+            parent.text.color,
+            max_width,
+        );
+        galley
+    }
+
     pub fn set_text_styling(
         &mut self,
         text: &str,
@@ -201,26 +219,18 @@ impl Tailwind {
         fonts: &Fonts,
         parent: &Tailwind,
     ) {
-        let galley = fonts.layout_no_wrap(
-            text.to_string(),
-            parent.text.font.clone(),
-            parent.text.color,
-        );
+        let galley = self.get_font_galley(text, taffy, fonts, parent);
         let size = galley.size();
-
         let style = Style {
             size: Size {
                 width: Dimension::Length(size.x),
                 height: Dimension::Length(size.y),
             },
+            
             ..Default::default()
         };
 
-        if let Some(node) = self.node {
-            taffy.set_style(node, style).unwrap();
-        } else {
-            self.node = Some(taffy.new_leaf(style).unwrap());
-        }
+        taffy.set_style(self.node.unwrap(), style).unwrap();
     }
 
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {

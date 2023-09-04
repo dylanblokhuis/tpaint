@@ -648,7 +648,7 @@ impl DomEventLoop {
             root_id,
             None,
             &Vec2::ZERO,
-            &mut |node, _parent, parent_location_offset| {
+            &mut |node, parent, parent_location_offset| {
             let Some(node_id) = node.styling.node else {
                 return (false, *parent_location_offset);
             };
@@ -662,7 +662,10 @@ impl DomEventLoop {
                 && translated_mouse_pos.y >= location.y
                 && translated_mouse_pos.y <= location.y + layout.size.height
             {
-                elements.push(node.id);            
+                elements.push(node.id);       
+                if node.tag == "text".into() {
+                    self.get_cursor_on_text_element(location, translated_mouse_pos, node, parent.unwrap());
+                }     
             }
 
             (true, location)
@@ -670,6 +673,21 @@ impl DomEventLoop {
 
         vdom.hovered = elements.clone();
         elements
+    }
+
+    pub fn get_cursor_on_text_element(&self, location: Vec2, translated_mouse_pos: Pos2,  node: &Node, parent: &Node) {    
+        if node.tag != "text".into() {
+            return;
+        }
+
+        let Some(text) = node.attrs.get("value") else {
+            return;
+        };
+        let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
+        let relative_mouse_pos = translated_mouse_pos - location;
+        let cursor = galley.cursor_from_pos(relative_mouse_pos.to_vec2());
+
+        println!("cursor {:?}", cursor);
     }
 
     fn translate_mouse_pos(&self, pos_in_pixels: &PhysicalPosition<f64>) -> epaint::Pos2 {
