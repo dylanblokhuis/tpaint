@@ -19,7 +19,7 @@ pub fn app(cx: Scope) -> Element {
 
     render! {
         view {
-            class: "flex-col w-full h-full bg-red-200 p-10",
+            class: "flex-col w-full h-full p-10",
 
             Input {
                 name: "input1",

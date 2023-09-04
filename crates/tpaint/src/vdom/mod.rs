@@ -591,7 +591,7 @@ impl DomEventLoop {
 
             WindowEvent::CursorLeft { .. } => {
                 self.cursor_state.last_pos = Pos2::new(0.0, 0.0);
-                false
+                true
             }
 
             WindowEvent::ModifiersChanged(state) => {
@@ -615,9 +615,12 @@ impl DomEventLoop {
             WindowEvent::ReceivedCharacter(c) => {
                 let focused = self.vdom.lock().unwrap().focused;
                 if let Some(node_id) = focused {
-                    self.send_event_to_element(node_id, "input", Arc::new(events::Event::Text(events::Text(*c))));
+                    self.send_event_to_element(node_id, "input", Arc::new(events::Event::Text(events::Text {
+                        char: *c,
+                        modifiers: self.keyboard_state.modifiers,
+                    })));
                 }
-                false
+                true
             }
 
             WindowEvent::Focused(focused) => {
@@ -705,7 +708,7 @@ impl DomEventLoop {
         }
 
         // dioxus will request redraws so we don't need to
-        false
+        true
     }
 
     fn on_mouse_input(
@@ -751,7 +754,7 @@ impl DomEventLoop {
             }
         }
 
-        false
+        true
     }
 
     fn set_focus(

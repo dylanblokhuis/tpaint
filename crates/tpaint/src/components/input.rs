@@ -38,6 +38,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
 
     let is_all_selected = selection_start.get() == cursor_pos.get();
 
+    
     let handle_keydown = move |event: Event<crate::vdom::events::KeyInput>| match event.key.name() {
         "Backspace" => {
             if *cursor_pos.get() > 0 && is_all_selected {
@@ -47,6 +48,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
                     text
                 });
                 cursor_pos.set(cursor_pos - 1);
+                selection_start.set(cursor_pos - 1);
                 return;
             }
 
@@ -118,12 +120,12 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
 
         "X" => {
-            if event.modifiers.ctrl && !is_all_selected {
+            if event.modifiers.command && !is_all_selected {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let (drained_text, start, _) = get_text_range();
                 text.modify(|text| {
                     let mut text = text.clone();
-                    text.replace_range(start..start + drained_text.len(), "");
+                    text.replace_range(start..drained_text.len(), "");
                     text
                 });
                 ctx.set_contents(drained_text).unwrap();
@@ -133,14 +135,16 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
 
         "A" => {
-            if event.modifiers.ctrl {
+            println!("{:?}", event.modifiers);
+
+            if event.modifiers.command {
                 cursor_pos.set(text.len());
                 selection_start.set(0);
             }
         }
 
         "C" => {
-            if event.modifiers.ctrl && !is_all_selected {
+            if event.modifiers.command && !is_all_selected {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let (drained_text, _, _) = get_text_range();
                 ctx.set_contents(drained_text).unwrap();
@@ -148,7 +152,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
 
         "V" => {
-            if event.modifiers.ctrl {
+            if event.modifiers.command {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let clipboard_text = ctx.get_contents().unwrap();
                 text.modify(|text| {
@@ -173,7 +177,11 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
     };
 
     let handle_input = move |event: Event<crate::vdom::events::Text>| {
-        if event.0.is_control() {
+        if event.char.is_control() {
+            return;
+        }
+
+        if event.modifiers.command {
             return;
         }
 
@@ -182,14 +190,14 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             text.modify(|text| {
                 let mut text = text.clone();
                 text.replace_range(start..start + drained_text.len(), "");
-                text.insert(start, event.0);
+                text.insert(start, event.char);
                 text
             });
             cursor_pos.set(start + 1);
             selection_start.set(start + 1);
         } else {
             let mut chars = text.chars().collect::<Vec<_>>();
-            chars.insert(*cursor_pos.get(), event.0);
+            chars.insert(*cursor_pos.get(), event.char);
             text.set(chars.iter().collect());
             cursor_pos.set(cursor_pos + 1);
             selection_start.set(cursor_pos + 1);
