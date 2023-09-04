@@ -215,9 +215,9 @@ impl VDom {
             "text" => {
                 if let Some(styling) = node.styling.clone().node {
                     let layout = taffy.layout(styling).unwrap();
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), layout);
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap(), layout);
                 } else {
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), node.styling);
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap(), node.styling);
                 }
             }
             _ => {

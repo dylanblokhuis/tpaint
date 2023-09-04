@@ -142,19 +142,15 @@ impl Renderer {
 
         // text pass, todo: DRY this
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
-            match &*node.tag {
-                "text" => {
-                    node.styling.set_text_styling(
-                        node.attrs.get("value").unwrap_or(&String::new()),
-                        taffy,
-                        &self.fonts,
-                        &parent.unwrap().styling,
-                    );
-                }
-                _ => {}
+            if node.tag == "text".into() {
+                node.styling.set_text_styling(
+                    node.attrs.get("value").unwrap(),
+                    taffy,
+                    &self.fonts,
+                    &parent.unwrap().styling,
+                );
             }
-
-            return true;
+            true
         });
 
         taffy

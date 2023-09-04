@@ -6,8 +6,9 @@ use epaint::textures::TextureOptions;
 use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Galley, Rounding, TextureManager};
 use lazy_static::lazy_static;
 use log::debug;
+use taffy::geometry::Point;
 use taffy::prelude::*;
-use taffy::style::Style;
+use taffy::style::{Overflow, Style};
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 
@@ -466,6 +467,26 @@ impl Tailwind {
 
         if let Some(class) = class.strip_prefix("bottom-") {
             style.inset.bottom = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
+        }
+
+        if let Some(class) = class.strip_prefix("overflow-") {
+            style.overflow = match class {
+                "hidden" => Point {
+                    x: Overflow::Hidden,
+                    y: Overflow::Hidden,
+                },
+                "visible" => Point {
+                    x: Overflow::Visible,
+                    y: Overflow::Visible,
+                },
+                "scroll" => Point {
+                    x: Overflow::Scroll,
+                    y: Overflow::Scroll,
+                },
+                _ => {
+                    unimplemented!("Unknown overflow class {}", class);
+                }
+            }
         }
     }
 }
