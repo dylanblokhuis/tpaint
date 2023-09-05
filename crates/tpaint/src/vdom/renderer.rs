@@ -5,7 +5,7 @@ use epaint::{
     TextureManager, Vec2, WHITE_UV,
 };
 
-use taffy::{prelude::Size, Taffy};
+use taffy::{prelude::Size, Taffy, style::Overflow};
 use winit::dpi::PhysicalSize;
 
 use super::{tailwind::StyleState, Node, ScreenDescriptor, VDom, MAX_CHILDREN};
@@ -142,15 +142,19 @@ impl Renderer {
 
         // text pass, todo: DRY this
         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
-            if node.tag == "text".into() {
-                node.styling.set_text_styling(
-                    node.attrs.get("value").unwrap(),
-                    taffy,
-                    &self.fonts,
-                    &parent.unwrap().styling,
-                );
+            match &*node.tag {
+                "text" => {
+                    node.styling.set_text_styling(
+                        node.attrs.get("value").unwrap_or(&String::new()),
+                        taffy,
+                        &self.fonts,
+                        &parent.unwrap().styling,
+                    );
+                }
+                _ => {}
             }
-            true
+
+            return true;
         });
 
         taffy
@@ -180,17 +184,47 @@ impl Renderer {
         vdom.traverse_tree_with_parent_and_data(
             root_id,
             None,
-            &Vec2::ZERO,
-            &mut |node, parent, parent_location_offset| {
+            &(Vec2::ZERO, None),
+            &mut |node, parent, (parent_location_offset, parent_clip): &(Vec2, Option<Rect>)| {
                 let taffy_id = node.styling.node.unwrap();
                 let layout = self.taffy.layout(taffy_id).unwrap();
                 let location = *parent_location_offset
                     + epaint::Vec2::new(layout.location.x, layout.location.y);
 
+                // todo: clip should not used when when overflow is set to visible
+                let node_clip = {
+                    epaint::Rect {
+                        min: epaint::Pos2 {
+                            x: location.x,
+                            y: location.y,
+                        },
+                        max: epaint::Pos2 {
+                            x: location.x + layout.size.width,
+                            y: location.y + layout.size.height,
+                        },
+                    }
+                };
+
+                let style = self.taffy.style(taffy_id).unwrap();
+
+                let mut clip = node_clip;
+                match style.overflow.y {
+                    Overflow::Scroll | Overflow::Hidden => {
+                        if let Some(current_clip) = parent_clip {
+                            clip = node_clip.intersect(*current_clip);
+                        }
+                    }
+                    Overflow::Visible => {
+                        if let Some(parent_clip_rect) = parent_clip {
+                            clip = *parent_clip_rect;
+                        }
+                    }
+                }               
+
                 match &(*node.tag) {
                     "text" => {
                         let parent = parent.unwrap();
-                        let shape = self.get_text_shape(node, parent, layout, &location);
+                        let shape = self.get_text_shape(node, parent, clip, layout, &location);
 
                         if let Some(cursor) = parent.attrs.get("cursor") {
                             let epaint::Shape::Text(text_shape) = &shape.shape else {
@@ -223,11 +257,11 @@ impl Renderer {
                         shapes.push(shape);
                     }
                     _ => {
-                        shapes.push(self.get_rect_shape(node, layout, &location));
+                        shapes.push(self.get_rect_shape(node, clip, layout, &location));
                     }
                 }
 
-                (true, location)
+                (true, (location, Some(clip)))
             },
         );
 
@@ -246,15 +280,13 @@ impl Renderer {
             (atlas.size(), atlas.prepared_discs())
         };
 
-        let primitives = {
-            epaint::tessellator::tessellate_shapes(
-                self.fonts.pixels_per_point(),
-                TessellationOptions::default(),
-                font_tex_size,
-                prepared_discs,
-                std::mem::take(&mut shapes),
-            )
-        };
+        let primitives = epaint::tessellator::tessellate_shapes(
+            self.fonts.pixels_per_point(),
+            TessellationOptions::default(),
+            font_tex_size,
+            prepared_discs,
+            std::mem::take(&mut shapes),
+        );
 
         (primitives, texture_delta, &self.screen_descriptor)
     }
@@ -263,6 +295,7 @@ impl Renderer {
         &self,
         node: &Node,
         parent_node: &Node,
+        parent_clip: Rect,
         layout: &taffy::prelude::Layout,
         location: &Vec2,
     ) -> ClippedShape {
@@ -272,7 +305,7 @@ impl Renderer {
             node.attrs.get("value").unwrap().clone(),
             parent.text.font.clone(),
             parent.text.color,
-            layout.size.width,
+            layout.size.width + 0.5,
         );
 
         let rect: Rect = Rect::from_min_size(
@@ -286,7 +319,7 @@ impl Renderer {
         let shape = Shape::galley(rect.min, galley);
 
         ClippedShape {
-            clip_rect: shape.visual_bounding_rect(),
+            clip_rect: parent_clip,
             shape,
         }
     }
@@ -400,21 +433,21 @@ impl Renderer {
     fn get_rect_shape(
         &self,
         node: &Node,
+        parent_clip: Rect,
         layout: &taffy::prelude::Layout,
         location: &Vec2,
     ) -> ClippedShape {
         let styling = &node.styling;
         let rounding = styling.border.radius;
-        let x_start = location.x + styling.border.width / 2.0;
-        let y_start = location.y + styling.border.width / 2.0;
-        let x_end: f32 = location.x + layout.size.width - styling.border.width / 2.0;
-        let y_end: f32 = location.y + layout.size.height - styling.border.width / 2.0;
         let rect = epaint::Rect {
             min: epaint::Pos2 {
-                x: x_start,
-                y: y_start,
+                x: location.x + styling.border.width / 2.0,
+                y: location.y + styling.border.width / 2.0,
             },
-            max: epaint::Pos2 { x: x_end, y: y_end },
+            max: epaint::Pos2 {
+                x: location.x + layout.size.width,
+                y: location.y + layout.size.height,
+            },
         };
 
         let shape = epaint::Shape::Rect(epaint::RectShape {
@@ -440,10 +473,9 @@ impl Renderer {
                 epaint::Rect::from_min_max(WHITE_UV, WHITE_UV)
             },
         });
-        let clip = shape.visual_bounding_rect();
 
         ClippedShape {
-            clip_rect: clip,
+            clip_rect: parent_clip,
             shape,
         }
     }

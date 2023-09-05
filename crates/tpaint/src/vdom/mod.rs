@@ -31,6 +31,7 @@ pub struct Node {
     pub attrs: FxHashMap<Arc<str>, String>,
     pub children: SmallVec<[NodeId; MAX_CHILDREN]>,
     styling: Tailwind,
+    scroll: Vec2,
 }
 
 pub struct VDom {
@@ -53,6 +54,7 @@ impl VDom {
             attrs: FxHashMap::default(),
             children: smallvec![],
             styling: Tailwind::default(),
+            scroll: Vec2::ZERO,
         });
 
         let mut element_id_mapping = FxHashMap::default();
@@ -215,9 +217,9 @@ impl VDom {
             "text" => {
                 if let Some(styling) = node.styling.clone().node {
                     let layout = taffy.layout(styling).unwrap();
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap(), layout);
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), layout);
                 } else {
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap(), node.styling);
+                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), node.styling);
                 }
             }
             _ => {
@@ -279,6 +281,7 @@ impl VDom {
                         .collect(),
                     children: smallvec![],
                     styling: Tailwind::default(),
+                    scroll: Vec2::ZERO,
                 };
                 let parent = self.nodes.insert_with_key(|id| {
                     node.id = id;
@@ -302,6 +305,7 @@ impl VDom {
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
+                    scroll: Vec2::ZERO,
                 }})
             }
 
@@ -315,6 +319,7 @@ impl VDom {
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
+                    scroll: Vec2::ZERO,
                 }})
             }
 
@@ -327,6 +332,7 @@ impl VDom {
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
+                    scroll: Vec2::ZERO,
                 }})
             },
         }
@@ -341,6 +347,7 @@ impl VDom {
             attrs: node.attrs.clone(),
             children: smallvec![],
             styling: node.styling.clone(),
+            scroll: Vec2::ZERO,
         };
         let new_node_id = self.nodes.insert_with_key(|id| {
             new_node.id = id;
@@ -654,6 +661,10 @@ impl DomEventLoop {
                 self.on_keyboard_input(input)
             }
 
+            WindowEvent::MouseWheel { delta, phase, .. } => {                
+                false
+            }
+
             WindowEvent::ReceivedCharacter(c) => {
                 let focused = self.vdom.lock().unwrap().focused;
                 if let Some(node_id) = focused {
@@ -722,10 +733,8 @@ impl DomEventLoop {
         let text = node.attrs.get("value").unwrap();
         let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
         let relative_mouse_pos = translated_mouse_pos - location;
-        println!("relative_mouse_pos {:?}", relative_mouse_pos);
         let cursor = galley.cursor_from_pos(relative_mouse_pos.to_vec2());
 
-        println!("cursor {:?}", cursor);
         (cursor, parent.id)
     }
 

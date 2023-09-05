@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;
 use taffy::prelude::*;
-use taffy::style::{Overflow, Style};
+use taffy::style::{Style, Overflow};
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 
@@ -224,8 +224,7 @@ impl Tailwind {
         let size = galley.size();
         let style = Style {
             size: Size {
-                // the 0.5 makes selection fully work, should probably investigate further
-                width: Dimension::Length(size.x + 0.5),
+                width: Dimension::Length(size.x),
                 height: Dimension::Length(size.y),
             },
 
@@ -470,21 +469,30 @@ impl Tailwind {
         }
 
         if let Some(class) = class.strip_prefix("overflow-") {
-            style.overflow = match class {
-                "hidden" => Point {
-                    x: Overflow::Hidden,
-                    y: Overflow::Hidden,
-                },
-                "visible" => Point {
-                    x: Overflow::Visible,
-                    y: Overflow::Visible,
-                },
-                "scroll" => Point {
-                    x: Overflow::Scroll,
-                    y: Overflow::Scroll,
-                },
+            match class {
+                "scroll" => {
+                    style.overflow = Point {
+                        x: Overflow::Scroll,
+                        y: Overflow::Scroll,
+                    }
+                }
+
+                "hidden" => {
+                    style.overflow = Point {
+                        x: Overflow::Hidden,
+                        y: Overflow::Hidden,
+                    }
+                }
+
+                "visible" => {
+                    style.overflow = Point {
+                        x: Overflow::Visible,
+                        y: Overflow::Visible,
+                    }
+                }
+
                 _ => {
-                    unimplemented!("Unknown overflow class {}", class);
+                    log::error!("Unknown overflow class: {}", class);
                 }
             }
         }
