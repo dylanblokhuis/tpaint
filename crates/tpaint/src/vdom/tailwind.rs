@@ -64,6 +64,7 @@ pub struct StyleState {
 }
 
 impl Tailwind {
+    #[tracing::instrument(skip_all, name = "Tailwind::set_styling")]
     pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) -> &mut Self {
         let classes = class.split_whitespace();
 
@@ -96,6 +97,7 @@ impl Tailwind {
         self
     }
 
+    #[tracing::instrument(skip_all, name = "Tailwind::set_texture")]
     pub fn set_texture(&mut self, taffy: &mut Taffy, src: &str, tex_manager: &mut TextureManager) {
         use usvg::TreeParsing;
 
@@ -154,6 +156,7 @@ impl Tailwind {
         self.set_aspect_ratio_layout(taffy, tex_manager);
     }
 
+    #[tracing::instrument(skip_all, name = "Tailwind::set_aspect_ratio_layout")]
     fn set_aspect_ratio_layout(&self, taffy: &mut Taffy, tex_manager: &TextureManager) {
         let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
         let image_size = [meta.size[0] as f32, meta.size[1] as f32];
@@ -213,6 +216,7 @@ impl Tailwind {
         )
     }
 
+    #[tracing::instrument(skip_all, name = "Tailwind::set_text_styling")]
     pub fn set_text_styling(
         &mut self,
         text: &str,
@@ -234,6 +238,7 @@ impl Tailwind {
         taffy.set_style(self.node.unwrap(), style).unwrap();
     }
 
+    #[tracing::instrument(skip_all, name = "Tailwind::handle_class")]
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {
         if class == "flex-col" {
             style.display = Display::Flex;

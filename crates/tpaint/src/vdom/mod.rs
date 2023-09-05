@@ -30,8 +30,8 @@ pub struct Node {
     pub tag: Arc<str>,
     pub attrs: FxHashMap<Arc<str>, String>,
     pub children: SmallVec<[NodeId; MAX_CHILDREN]>,
-    styling: Tailwind,
-    scroll: Vec2,
+    pub styling: Tailwind,
+    pub scroll: Vec2,
 }
 
 pub struct VDom {
@@ -115,6 +115,7 @@ impl VDom {
         other
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::apply_mutations")]
     pub fn apply_mutations(&mut self, mutations: Mutations) {
         for template in mutations.templates {
             let mut children = SmallVec::with_capacity(template.roots.len());
@@ -246,6 +247,7 @@ impl VDom {
         current_id
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::get_tag_or_attr_key")]
     pub fn get_tag_or_attr_key(&mut self, key: &str) -> Arc<str> {
         if let Some(s) = self.common_tags_and_attr_keys.get(key) {
             s.clone()
@@ -257,6 +259,7 @@ impl VDom {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::create_template_node")]
     fn create_template_node(&mut self, node: &TemplateNode) -> NodeId {
         match *node {
             TemplateNode::Element {
@@ -339,6 +342,7 @@ impl VDom {
     }
 
     /// Clone node and its children, they all get new ids
+    #[tracing::instrument(skip_all, name = "VDom::clone_node")]
     pub fn clone_node(&mut self, node_id: NodeId) -> NodeId {
         let node = self.nodes.get(node_id).unwrap();
         let mut new_node = Node {
@@ -378,6 +382,7 @@ impl VDom {
         self.element_id_mapping[&ElementId(0)]
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree")]
     fn traverse_tree(&self, id: NodeId, callback: &mut impl FnMut(&Node) -> bool) {
         let node = self.nodes.get(id).unwrap();
         let should_continue = callback(node);
@@ -389,6 +394,7 @@ impl VDom {
         }
     }
     
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_with_parent")]
     fn traverse_tree_with_parent(&self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&Node, Option<&Node>) -> bool) {
         let node = self.nodes.get(id).unwrap();
         let should_continue = callback(node, 
@@ -404,6 +410,7 @@ impl VDom {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_with_parent_and_data")]
     fn traverse_tree_with_parent_and_data<T>(
         &self,
         id: NodeId,
@@ -426,6 +433,7 @@ impl VDom {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut_with_parent_and_data")]
     fn traverse_tree_mut_with_parent_and_data<T>(&mut self, id: NodeId, parent_id: Option<NodeId>, data: &T, callback: &mut impl FnMut(&mut Node, Option<&Node>, &T) -> (bool, T)) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -465,6 +473,7 @@ impl VDom {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut_with_parent")]
     fn traverse_tree_mut_with_parent(&mut self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&mut Node, Option<&Node>) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -502,6 +511,7 @@ impl VDom {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut")]
     pub fn traverse_tree_mut(&mut self, root_id: NodeId, callback: &mut impl FnMut(&mut Node) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -534,9 +544,6 @@ pub struct ScreenDescriptor {
     pub pixels_per_point: f32,
     pub size: PhysicalSize<u32>,
 }
-
-
-
 
 #[derive(Clone, Default)]
 pub struct CursorState {
@@ -662,6 +669,11 @@ impl DomEventLoop {
             }
 
             WindowEvent::MouseWheel { delta, phase, .. } => {                
+                let elements = self.get_elements_on_pos(self.cursor_state.last_pos);
+                let mut vdom = self.vdom.lock().unwrap();
+
+
+
                 false
             }
 

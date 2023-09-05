@@ -45,6 +45,7 @@ impl Renderer {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::calculate_layout")]
     pub fn calculate_layout(&mut self, vdom: &mut VDom) {
         let root_id = vdom.get_root_id();
 
@@ -174,6 +175,7 @@ impl Renderer {
             .unwrap();
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
     pub fn get_paint_info(
         &mut self,
         vdom: &VDom,
@@ -291,6 +293,7 @@ impl Renderer {
         (primitives, texture_delta, &self.screen_descriptor)
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::get_text_shape")]
     fn get_text_shape(
         &self,
         node: &Node,
@@ -324,6 +327,7 @@ impl Renderer {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
     fn get_cursor_shape(&self, text_shape: &epaint::TextShape, cursor_pos: usize) -> ClippedShape {
         let rect = text_shape
             .galley
@@ -359,6 +363,7 @@ impl Renderer {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
     fn get_text_selection_shape(
         &self,
         text_shape: &epaint::TextShape,
@@ -430,6 +435,7 @@ impl Renderer {
         }
     }
 
+    #[tracing::instrument(skip_all, name = "Renderer::get_rect_shape")]
     fn get_rect_shape(
         &self,
         node: &Node,
