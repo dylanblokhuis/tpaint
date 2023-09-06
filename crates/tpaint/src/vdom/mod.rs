@@ -41,6 +41,7 @@ pub struct ScrollNode {
     pub id: NodeId,
     pub scrollbar: Rect,
     pub thumb: Rect,
+    pub horizontal: bool,
 
     pub is_scrollbar_hovered: bool,
     pub is_scrollbar_button_hovered: bool,
@@ -141,12 +142,9 @@ impl VDom {
             self.nodes[old_node_id].parent_id.unwrap()
         };
 
-        {
-            let node = self.nodes.get_mut(new_id).unwrap();
-            node.parent_id = Some(parent_id);
-        }
+        self.nodes[new_id].parent_id = Some(parent_id);
         
-        let parent = self.nodes.get_mut(parent_id).unwrap();
+        let parent = &mut self.nodes[parent_id];
         
         let index = parent
             .children
@@ -213,12 +211,10 @@ impl VDom {
                 } => {
                     let node_id = self.element_id_mapping[&id];
                     if let BorrowedAttributeValue::None = &value {
-                        let node = self.nodes.get_mut(node_id).unwrap();
-                        node.attrs.remove(name);
+                        self.nodes[node_id].attrs.remove(name);
                     } else {
                         let key = self.get_tag_or_attr_key(name);
-                        let node = self.nodes.get_mut(node_id).unwrap();
-                        node.attrs.insert(
+                        self.nodes[node_id].attrs.insert(
                             key,
                             match value {
                                 BorrowedAttributeValue::Int(val) => val.to_string(),
@@ -235,14 +231,12 @@ impl VDom {
                     let node_id = self.load_path(path);
                     let key = self.get_tag_or_attr_key("value");
                     self.element_id_mapping.insert(id, node_id);
-                    let node = self.nodes.get_mut(node_id).unwrap();
-                    node.attrs.insert(key, value.to_string());
+                    self.nodes[node_id].attrs.insert(key, value.to_string());
                 }
                 dioxus::core::Mutation::SetText { value, id } => {
                     let node_id = self.element_id_mapping[&id];
                     let key = self.get_tag_or_attr_key("value");
-                    let node = self.nodes.get_mut(node_id).unwrap();
-                    node.attrs.insert(key, value.to_string());
+                    self.nodes[node_id].attrs.insert(key, value.to_string());
                 }
 
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
@@ -292,7 +286,7 @@ impl VDom {
 
     fn load_path(&self, path: &[u8]) -> NodeId {
         let mut current_id = *self.stack.last().unwrap();
-        let current = self.nodes.get(current_id).unwrap();
+        let current = &self.nodes[current_id];
         for index in path {
             let new_id = current.children[*index as usize];
             current_id = new_id
@@ -405,7 +399,7 @@ impl VDom {
     /// Clone node and its children, they all get new ids
     #[tracing::instrument(skip_all, name = "VDom::clone_node")]
     pub fn clone_node(&mut self, node_id: NodeId, parent_id: Option<NodeId>) -> NodeId {
-        let node = self.nodes.get(node_id).unwrap();
+        let node = &self.nodes[node_id];
         let mut new_node = Node {
             id: NodeId::default(),
             parent_id,
@@ -424,8 +418,7 @@ impl VDom {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
 
-        let node = self.nodes.get(node_id).unwrap();
-        for child in node.children.iter() {
+        for child in self.nodes[node_id].children.iter() {
             if count >= MAX_CHILDREN {
                 break;
             }
@@ -597,7 +590,7 @@ impl VDom {
 
     #[tracing::instrument(skip_all, name = "VDom::remove_node")]
     pub fn remove_node(&mut self, id: NodeId) {
-        let parent = { self.nodes.get(id).unwrap().parent_id.unwrap() };
+        let parent = { self.nodes[id].parent_id.unwrap() };
         self.traverse_tree_mut(parent, &mut |node| {
             if let Some(index) = node.children.iter().position(|child| *child == id) {
                 node.children.remove(index);
@@ -760,11 +753,13 @@ impl DomEventLoop {
             }
 
             WindowEvent::MouseWheel { delta, phase, .. } => {                
+                println!("{:?}", delta);
+                
                 let mut vdom = self.vdom.lock().unwrap();
                 let Some(scroll_node) = vdom.current_scroll_node else {
                     return false;
                 };
-                let node = vdom.nodes.get_mut(scroll_node.id).unwrap();
+                let node = &mut vdom.nodes[scroll_node.id];
 
                 let tick_size = 30.0;
                 let content_size = node.natural_content_size;
@@ -777,8 +772,12 @@ impl DomEventLoop {
                 );
             
                 match delta {
-                    MouseScrollDelta::LineDelta(x, y) => {                                             
-                        node.scroll -= Vec2::new(*x * tick_size, *y * tick_size);
+                    MouseScrollDelta::LineDelta(x, y) => {      
+                        if self.keyboard_state.modifiers.shift {
+                            node.scroll -= Vec2::new(*y * tick_size, *x * tick_size);
+                        } else {
+                            node.scroll -= Vec2::new(*x * tick_size, *y * tick_size);
+                        }
                     },
                     MouseScrollDelta::PixelDelta(pos) => {
                         node.scroll += Vec2::new(pos.x as f32, pos.y as f32);
@@ -853,8 +852,8 @@ impl DomEventLoop {
 
                 // here we figure out if the mouse is hovering over a scrollbar
                 if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !scroll_is_being_dragged {
-                    let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width);
-                    let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width);
+                    let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, false);
+                    let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, false);
 
                     if scrollbar.contains(translated_mouse_pos)
                     {
@@ -866,6 +865,7 @@ impl DomEventLoop {
                                 is_scrollbar_hovered: true,
                                 is_scrollbar_button_hovered: true,
                                 is_scrollbar_button_grabbed: false,
+                                horizontal: false,
                             });
                         } else {
                             current_scroll_node = Some(ScrollNode {
@@ -875,6 +875,7 @@ impl DomEventLoop {
                                 is_scrollbar_hovered: true,
                                 is_scrollbar_button_grabbed: false,
                                 is_scrollbar_button_hovered: false,
+                                horizontal: false,
                             });
                         }
                     } else {
@@ -885,6 +886,47 @@ impl DomEventLoop {
                             is_scrollbar_hovered: false,
                             is_scrollbar_button_grabbed: false,
                             is_scrollbar_button_hovered: false,
+                            horizontal: false,
+                        });
+                    }
+                }
+
+                if style.overflow.x == Overflow::Scroll && style.scrollbar_width != 0.0 && !scroll_is_being_dragged {
+                    let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, true);
+                    let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, true);
+
+                    if scrollbar.contains(translated_mouse_pos)
+                    {
+                        if thumb.contains(translated_mouse_pos) {
+                            current_scroll_node = Some(ScrollNode {
+                                id: node.id,
+                                scrollbar,
+                                thumb,
+                                is_scrollbar_hovered: true,
+                                is_scrollbar_button_hovered: true,
+                                is_scrollbar_button_grabbed: false,
+                                horizontal: true,
+                            });
+                        } else {
+                            current_scroll_node = Some(ScrollNode {
+                                id: node.id,
+                                scrollbar,
+                                thumb,
+                                is_scrollbar_hovered: true,
+                                is_scrollbar_button_grabbed: false,
+                                is_scrollbar_button_hovered: false,
+                                horizontal: true,
+                            });
+                        }
+                    } else {
+                        current_scroll_node = Some(ScrollNode {
+                            id: node.id,
+                            scrollbar,
+                            thumb,
+                            is_scrollbar_hovered: false,
+                            is_scrollbar_button_grabbed: false,
+                            is_scrollbar_button_hovered: false,
+                            horizontal: true,
                         });
                     }
                 }
@@ -950,26 +992,32 @@ impl DomEventLoop {
             }
         }
 
-
         // handle scroll thumb dragging
         if self.cursor_state.is_button_down {
             let mut vdom = self.vdom.lock().unwrap();
             if let Some(scroll_node) = vdom.current_scroll_node {
-                if scroll_node.is_scrollbar_button_grabbed {
-                    let drag_delta_y = self.cursor_state.last_pos.y - self.cursor_state.drag_start_pos.y;
-                    let drag_percentage = drag_delta_y / scroll_node.scrollbar.height();
+                let node = &mut vdom.nodes[scroll_node.id];
+                if scroll_node.is_scrollbar_button_grabbed && scroll_node.horizontal {
+                    let drag_delta_x = self.cursor_state.last_pos.x - self.cursor_state.drag_start_pos.x;
+                    let drag_percentage_x = drag_delta_x / scroll_node.scrollbar.width();
 
-                    let node = &mut vdom.nodes[scroll_node.id];
+                    let content_width = node.natural_content_size.width;
+                    let viewport_width = scroll_node.scrollbar.width();
+                    let max_scrollable_distance_x = content_width - viewport_width;
+                    node.scroll.x += drag_percentage_x * max_scrollable_distance_x;
+                    node.scroll.x = node.scroll.x.clamp(0.0, max_scrollable_distance_x);
+
+                    // Update the drag_start_pos to the current position for the next move event
+                    self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
+                } else if scroll_node.is_scrollbar_button_grabbed && !scroll_node.horizontal {
+                    let drag_delta_y = self.cursor_state.last_pos.y - self.cursor_state.drag_start_pos.y;
+                    let drag_percentage_y = drag_delta_y / scroll_node.scrollbar.height();
+
                     let content_height = node.natural_content_size.height;
                     let viewport_height = scroll_node.scrollbar.height();
-
-                    let max_scrollable_distance = content_height - viewport_height;
-
-                    // Adjust the scroll position based on drag percentage
-                    node.scroll.y += drag_percentage * max_scrollable_distance;
-
-                    // Clamp the scroll position to ensure it doesn't go out of bounds
-                    node.scroll.y = node.scroll.y.clamp(0.0, max_scrollable_distance);
+                    let max_scrollable_distance_y = content_height - viewport_height;
+                    node.scroll.y += drag_percentage_y * max_scrollable_distance_y;
+                    node.scroll.y = node.scroll.y.clamp(0.0, max_scrollable_distance_y);
 
                     // Update the drag_start_pos to the current position for the next move event
                     self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
@@ -1004,7 +1052,6 @@ impl DomEventLoop {
             self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
         }
 
-
         {
             let mut vdom = self.vdom.lock().unwrap();
             if let Some(scroll_node) = vdom.current_scroll_node {
@@ -1016,18 +1063,37 @@ impl DomEventLoop {
                                 ..scroll_node
                             });
                         } else if scroll_node.scrollbar.contains(self.cursor_state.last_pos) {
-                            let click_y_relative = self.cursor_state.last_pos.y - scroll_node.scrollbar.min.y;
-                            let click_percentage = click_y_relative / scroll_node.scrollbar.height();
-            
                             let node = &mut vdom.nodes[scroll_node.id];
-                            let content_height = node.natural_content_size.height;
-                            let viewport_height = scroll_node.scrollbar.height();
-            
-                            let thumb_height = (viewport_height / content_height) * scroll_node.scrollbar.height();
-                            let scroll_to_y_centered = click_percentage * (content_height - viewport_height) - (thumb_height / 2.0);
-                            let scroll_to_y_final = scroll_to_y_centered.clamp(0.0, content_height - viewport_height);
-                            node.scroll.y = scroll_to_y_final;
+                            let style = self.renderer.taffy.style(node.styling.node.unwrap()).unwrap();
+                            
+                            if style.overflow.y == Overflow::Scroll {
+                                let click_y_relative = self.cursor_state.last_pos.y - scroll_node.scrollbar.min.y;
+                                let click_percentage = click_y_relative / scroll_node.scrollbar.height();
+                
+                                let content_height = node.natural_content_size.height;
+                                let viewport_height = scroll_node.scrollbar.height();
+                
+                                let thumb_height = (viewport_height / content_height) * scroll_node.scrollbar.height();
+                                let scroll_to_y_centered = click_percentage * (content_height - viewport_height) - (thumb_height / 2.0);
+                                let scroll_to_y_final = scroll_to_y_centered.clamp(0.0, content_height - viewport_height);
+                                node.scroll.y = scroll_to_y_final;
+                            }
+
+                            if style.overflow.x == Overflow::Scroll {
+                                let click_x_relative = self.cursor_state.last_pos.x - scroll_node.scrollbar.min.x;
+                                let click_percentage_x = click_x_relative / scroll_node.scrollbar.width();
+    
+                                let content_width = node.natural_content_size.width;
+                                let viewport_width = scroll_node.scrollbar.width();
+                        
+                                let thumb_width = (viewport_width / content_width) * scroll_node.scrollbar.width();
+                                let scroll_to_x_centered = click_percentage_x * (content_width - viewport_width) - (thumb_width / 2.0);
+                                let scroll_to_x_final = scroll_to_x_centered.clamp(0.0, content_width - viewport_width);
+                                node.scroll.x = scroll_to_x_final;
+                            }
                         }
+
+                       
                     }
                     winit::event::ElementState::Released => {
                         vdom.current_scroll_node = Some(ScrollNode {
@@ -1080,8 +1146,7 @@ impl DomEventLoop {
         // check if its a text node
         {
             let vdom = self.vdom.lock().unwrap();
-            let node = vdom.nodes.get(node_id).unwrap();
-            if node.tag == "text".into() {
+            if vdom.nodes[node_id].tag == "text".into() {
                 return None;
             }
         }

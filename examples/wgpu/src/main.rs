@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(unsafe_code)]
 
+use simple_logger::SimpleLogger;
 use tpaint::DomEventLoop;
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
@@ -15,6 +16,8 @@ type UserEvent = ();
 fn main() {
     #[cfg(feature = "hot-reload")]
     dioxus_hot_reload::hot_reload_init!();
+
+    SimpleLogger::new().init().unwrap();
 
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = winit::window::WindowBuilder::new()
