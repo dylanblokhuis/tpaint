@@ -127,10 +127,10 @@ impl Tailwind {
 
             tex_manager.alloc(
                 path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(
+                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
                     [pixmap_size.width() as usize, pixmap_size.height() as usize],
                     pixmap.data(),
-                )),
+                ))),
                 TextureOptions::LINEAR,
             )
         } else {
@@ -147,7 +147,7 @@ impl Tailwind {
 
             tex_manager.alloc(
                 path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(ColorImage::from_rgba_unmultiplied(size, &rgba)),
+                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(size, &rgba))),
                 TextureOptions::LINEAR,
             )
         };

@@ -223,22 +223,22 @@ checksum = "a3e2c3daef883ecc1b5d58c15adae93470a91d425f3532ba1695849656af3fc1"
 
 [[package]]
 name = "bytemuck"
-version = "1.13.1"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17febce684fd15d89027105661fec94afb475cb995fbc59d2865198446ba2eea"
+checksum = "374d28ec25809ee0e23827c2ab573d729e293f281dfe393500e7ad618baa61c6"
 dependencies = [
  "bytemuck_derive",
 ]
 
 [[package]]
 name = "bytemuck_derive"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fdde5c9cd29ebd706ce1b35600920a33550e402fc998a2e53ad3b42c3c47a192"
+checksum = "965ab7eb5f8f97d2a083c799f3a1b994fc397b2fe2da5d1da1626ce15a39f2b1"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -601,7 +601,7 @@ dependencies = [
  "dioxus-rsx",
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -633,7 +633,7 @@ dependencies = [
  "dioxus-core",
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -660,7 +660,7 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 [[package]]
 name = "ecolor"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui#ea15987ad4f8da2e3deb61f2b75480e314b34b12"
+source = "git+https://github.com/emilk/egui#2338a854f932658ad0548aa4f00874b3427970c1"
 dependencies = [
  "bytemuck",
 ]
@@ -674,7 +674,7 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 [[package]]
 name = "emath"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui#ea15987ad4f8da2e3deb61f2b75480e314b34b12"
+source = "git+https://github.com/emilk/egui#2338a854f932658ad0548aa4f00874b3427970c1"
 dependencies = [
  "bytemuck",
 ]
@@ -682,7 +682,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.22.0"
-source = "git+https://github.com/emilk/egui#ea15987ad4f8da2e3deb61f2b75480e314b34b12"
+source = "git+https://github.com/emilk/egui#2338a854f932658ad0548aa4f00874b3427970c1"
 dependencies = [
  "ab_glyph",
  "ahash 0.8.3",
@@ -746,6 +746,21 @@ version = "0.1.0"
 dependencies = [
  "dioxus",
  "tpaint",
+]
+
+[[package]]
+name = "example_wgpu"
+version = "0.1.0"
+dependencies = [
+ "example_ui",
+ "log",
+ "pollster",
+ "raw-window-handle",
+ "simple_logger",
+ "tpaint",
+ "tpaint_wgpu",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]
@@ -852,7 +867,7 @@ checksum = "1a5c6c585bc94aaf2c7b51dd4c2ba22680844aba4c687be581871a6f518c5742"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -1678,7 +1693,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -1757,9 +1772,9 @@ dependencies = [
 
 [[package]]
 name = "object"
-version = "0.32.0"
+version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77ac5bbd07aea88c60a577a1ce218075ffd59208b2d7ca97adf9bfc5aeb21ebe"
+checksum = "9cf5f9dd3933bd50a9e1f149ec995f39ae2c496d31fd772c1fd45ebc27e902b0"
 dependencies = [
  "memchr",
 ]
@@ -1858,7 +1873,7 @@ checksum = "4359fd9c9171ec6e8c62926d6faaf553a8dc3f64e1507e76da7911b4f6a04405"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -2207,7 +2222,7 @@ checksum = "4eca7ac642d82aa35b60049a6eccb4be6be75e599bd2e9adb5f875a737654af2"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -2379,9 +2394,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.29"
+version = "2.0.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c324c494eba9d92503e6f1ef2e6df781e78f6a7705a0202d9801b198807d518a"
+checksum = "718fa2415bcb8d8bd775917a1bf12a7931b6dfa890753378538118181e0cb398"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2391,7 +2406,7 @@ dependencies = [
 [[package]]
 name = "taffy"
 version = "0.3.11"
-source = "git+https://github.com/dioxuslabs/taffy#4fb530bdd71609bb1d3f76c6a8bde1ba82805d5e"
+source = "git+https://github.com/dioxuslabs/taffy#7d47e4f04aba82fd17e54e4e64a74557f67ee495"
 dependencies = [
  "arrayvec",
  "grid",
@@ -2410,22 +2425,22 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.47"
+version = "1.0.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97a802ec30afc17eee47b2855fc72e0c4cd62be9b4efe6591edde0ec5bd68d8f"
+checksum = "9d6d7a740b8a666a7e828dd00da9c0dc290dff53154ea77ac109281de90589b7"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.47"
+version = "1.0.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bb623b56e39ab7dcd4b1b98bb6c8f8d907ed255b18de254088016b27a8ee19b"
+checksum = "49922ecae66cc8a249b77e68d1d0623c1b2c514f0060c27cdc68bd62a1219d35"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -2574,7 +2589,7 @@ checksum = "630bdcf245f78637c13ec01ffae6187cca34625e8c63150d424b59e55af2675e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -2642,21 +2657,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tpaint_wgpu_example"
-version = "0.1.0"
-dependencies = [
- "example_ui",
- "log",
- "pollster",
- "raw-window-handle",
- "simple_logger",
- "tpaint",
- "tpaint_wgpu",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "tracing"
 version = "0.1.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2676,7 +2676,7 @@ checksum = "5f4f31f56159e98206da9efd823404b79b6ef3143b4a7ab76e67b1751b25a4ab"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
 ]
 
 [[package]]
@@ -2955,7 +2955,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
  "wasm-bindgen-shared",
 ]
 
@@ -2989,7 +2989,7 @@ checksum = "54681b18a46765f095758388f2d0cf16eb8d4169b639ab575a8f5693af210c7b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.29",
+ "syn 2.0.31",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -3508,9 +3508,9 @@ dependencies = [
 
 [[package]]
 name = "xml-rs"
-version = "0.8.16"
+version = "0.8.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47430998a7b5d499ccee752b41567bc3afc57e1327dc855b1a2aa44ce29b5fa1"
+checksum = "1eee6bf5926be7cf998d7381a9a23d833fd493f6a8034658a9505a4dc4b20444"
 
 [[package]]
 name = "xmlparser"

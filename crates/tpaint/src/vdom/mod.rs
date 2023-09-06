@@ -47,12 +47,6 @@ pub struct ScrollNode {
     pub is_scrollbar_button_grabbed: bool,
 }
 
-impl ScrollNode {
-    pub fn get_scroll_to_position(&self, vdom: &VDom) {
-        // vdom.nodes
-    }
-}
-
 pub struct VDom {
     pub nodes: HopSlotMap<NodeId, Node>,
     templates: FxHashMap<String, SmallVec<[NodeId; MAX_CHILDREN]>>,
@@ -817,16 +811,13 @@ impl DomEventLoop {
                     cursor = self.get_global_cursor(location, translated_mouse_pos, node, parent.unwrap());
                 }     
 
-                // is the mouse on a scroll element and not already being dragged scrolling?
+                // here we figure out if the mouse is hovering over a scrollbar
                 if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !scroll_is_being_dragged {
                     let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width);
                     let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width);
 
-                    // is the mouse on a scroll bar?
                     if scrollbar.contains(translated_mouse_pos)
                     {
-
-                        // is the mouse on the scroll thumb?
                         if thumb.contains(translated_mouse_pos) {
                             current_scroll_node = Some(ScrollNode {
                                 id: node.id,
