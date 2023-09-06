@@ -5,7 +5,12 @@ use epaint::{
     TextureManager, Vec2, WHITE_UV,
 };
 
-use taffy::{prelude::Size, Taffy, style::Overflow};
+use taffy::{
+    prelude::Size,
+    style::{Dimension, Overflow},
+    style_helpers::TaffyAuto,
+    Taffy,
+};
 use winit::dpi::PhysicalSize;
 
 use super::{tailwind::StyleState, Node, ScreenDescriptor, VDom, MAX_CHILDREN};
@@ -48,131 +53,174 @@ impl Renderer {
     #[tracing::instrument(skip_all, name = "Renderer::calculate_layout")]
     pub fn calculate_layout(&mut self, vdom: &mut VDom) {
         let root_id = vdom.get_root_id();
-
-        // give root_node styling
-        vdom.nodes
-            .get_mut(root_id)
-            .unwrap()
-            .attrs
-            .insert("class".into(), "w-full h-full".into());
-
         let taffy = &mut self.taffy;
-        let hovered = vdom.hovered.clone();
-        let focused = vdom.focused;
-        vdom.traverse_tree_mut(root_id, &mut |node| {
-            let style_state = StyleState {
-                hovered: hovered.contains(&node.id),
-                focused: focused.map(|id| id == node.id).unwrap_or(false),
-            };
+        let available_space = Size {
+            width: taffy::style::AvailableSpace::Definite(
+                self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
+            ),
+            height: taffy::style::AvailableSpace::Definite(
+                self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
+            ),
+        };
 
-            match &(*node.tag) {
-                #[cfg(feature = "images")]
-                "image" => {
-                    node.styling
-                        .set_styling(
+        // rect layout pass
+        {
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout rect layout pass").entered();
+
+            vdom.nodes.get_mut(root_id).unwrap().attrs.insert(
+                "class".into(),
+                "w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default".into(),
+            );
+
+            let hovered = vdom.hovered.clone();
+            let focused = vdom.focused;
+            vdom.traverse_tree_mut(root_id, &mut |node| {
+                let style_state = StyleState {
+                    hovered: hovered.contains(&node.id),
+                    focused: focused.map(|id| id == node.id).unwrap_or(false),
+                };
+
+                match &(*node.tag) {
+                    #[cfg(feature = "images")]
+                    "image" => {
+                        node.styling
+                            .set_styling(
+                                taffy,
+                                node.attrs.get("class").unwrap_or(&String::new()),
+                                &style_state,
+                            )
+                            .set_texture(
+                                taffy,
+                                node.attrs.get("src").unwrap_or(&String::new()),
+                                &mut self.tex_manager,
+                            );
+                    }
+                    "view" => {
+                        node.styling.set_styling(
                             taffy,
                             node.attrs.get("class").unwrap_or(&String::new()),
                             &style_state,
-                        )
-                        .set_texture(
-                            taffy,
-                            node.attrs.get("src").unwrap_or(&String::new()),
-                            &mut self.tex_manager,
                         );
-                }
-                "view" => {
-                    node.styling.set_styling(
-                        taffy,
-                        node.attrs.get("class").unwrap_or(&String::new()),
-                        &style_state,
-                    );
-                }
+                    }
 
-                "text" => {
-                    node.styling.set_styling(taffy, "w-full", &style_state);
-                }
+                    "text" => {
+                        node.styling.set_styling(taffy, "w-full", &style_state);
+                    }
 
-                _ => {
-                    node.styling.set_styling(
-                        taffy,
-                        node.attrs.get("class").unwrap_or(&String::new()),
-                        &style_state,
-                    );
-                }
-            }
-
-            true
-        });
-
-        // set all the newly created leaf nodes to their parents
-        vdom.traverse_tree(root_id, &mut |node| {
-            let parent_id = node.styling.node.unwrap();
-            let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
-            let mut count = 0; // Keep track of how many child_ids we've filled
-
-            for (i, child) in node.children.iter().enumerate() {
-                if i >= MAX_CHILDREN {
-                    log::error!("Max children reached for node {:?}", node);
-                    break;
+                    _ => {
+                        node.styling.set_styling(
+                            taffy,
+                            node.attrs.get("class").unwrap_or(&String::new()),
+                            &style_state,
+                        );
+                    }
                 }
 
-                let node = vdom.nodes.get(*child).unwrap();
-                child_ids[i] = node.styling.node.unwrap();
-                count += 1;
-            }
+                true
+            });
 
-            taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
-            true
-        });
+            // set all the newly created leaf nodes to their parents
+            vdom.traverse_tree(root_id, &mut |node| {
+                let parent_id = node.styling.node.unwrap();
+                let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
+                let mut count = 0; // Keep track of how many child_ids we've filled
 
-        taffy
-            .compute_layout(
-                vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
-                Size {
-                    width: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.width as f32
-                            / self.screen_descriptor.pixels_per_point,
-                    ),
-                    height: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.height as f32
-                            / self.screen_descriptor.pixels_per_point,
-                    ),
-                },
-            )
-            .unwrap();
+                for (i, child) in node.children.iter().enumerate() {
+                    if i >= MAX_CHILDREN {
+                        log::error!("Max children reached for node {:?}", node);
+                        break;
+                    }
+
+                    let node = vdom.nodes.get(*child).unwrap();
+                    child_ids[i] = node.styling.node.unwrap();
+                    count += 1;
+                }
+
+                taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
+                true
+            });
+
+            taffy
+                .compute_layout(
+                    vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
+                    available_space,
+                )
+                .unwrap();
+        }
 
         // text pass, todo: DRY this
-        vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
-            match &*node.tag {
-                "text" => {
-                    node.styling.set_text_styling(
-                        node.attrs.get("value").unwrap_or(&String::new()),
-                        taffy,
-                        &self.fonts,
-                        &parent.unwrap().styling,
-                    );
+        {
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout text layout pass").entered();
+
+            vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
+                match &*node.tag {
+                    "text" => {
+                        node.styling.set_text_styling(
+                            node.attrs.get("value").unwrap_or(&String::new()),
+                            taffy,
+                            &self.fonts,
+                            &parent.unwrap().styling,
+                        );
+                    }
+                    _ => {}
                 }
-                _ => {}
+
+                return true;
+            });
+
+            taffy
+                .compute_layout(
+                    vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
+                    available_space,
+                )
+                .unwrap();
+        }
+
+        // generate natural content size for scrollable nodes
+        {
+            let _guard = tracing::trace_span!("Renderer::calculate_layout scroll pass").entered();
+
+            let mut styles_to_reset = Vec::new();
+            let root_taffy_id = vdom.nodes.get(root_id).unwrap().styling.node.unwrap();
+            vdom.traverse_tree_mut(root_id, &mut |node| {
+                let old_style = taffy.style(node.styling.node.unwrap()).unwrap().clone();
+                if old_style.overflow.y != Overflow::Scroll {
+                    return true;
+                }
+
+                let mut style = old_style.clone();
+                style.overflow.y = Overflow::Visible;
+                if style.flex_direction == taffy::style::FlexDirection::Column {
+                    style.size.width = Dimension::AUTO;
+                } else {
+                    style.size.height = Dimension::AUTO;
+                }
+                taffy.set_style(node.styling.node.unwrap(), style).unwrap();
+                taffy
+                    .compute_layout(root_taffy_id, available_space)
+                    .unwrap();
+
+                let natural_layout = taffy.layout(node.styling.node.unwrap()).unwrap();
+                node.natural_content_size = Size {
+                    width: natural_layout.size.width,
+                    height: natural_layout.size.height,
+                };
+
+                styles_to_reset.push((node.styling.node.unwrap(), old_style));
+
+                true
+            });
+
+            for (taffy_id, style) in styles_to_reset {
+                taffy.set_style(taffy_id, style).unwrap();
             }
 
-            return true;
-        });
-
-        taffy
-            .compute_layout(
-                vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
-                Size {
-                    width: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.width as f32
-                            / self.screen_descriptor.pixels_per_point,
-                    ),
-                    height: taffy::style::AvailableSpace::Definite(
-                        self.screen_descriptor.size.height as f32
-                            / self.screen_descriptor.pixels_per_point,
-                    ),
-                },
-            )
-            .unwrap();
+            taffy
+                .compute_layout(root_taffy_id, available_space)
+                .unwrap();
+        }
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
@@ -182,7 +230,6 @@ impl Renderer {
     ) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         let mut shapes = Vec::with_capacity(vdom.nodes.len());
         let root_id = vdom.get_root_id();
-
         vdom.traverse_tree_with_parent_and_data(
             root_id,
             None,
@@ -190,10 +237,30 @@ impl Renderer {
             &mut |node, parent, (parent_location_offset, parent_clip): &(Vec2, Option<Rect>)| {
                 let taffy_id = node.styling.node.unwrap();
                 let layout = self.taffy.layout(taffy_id).unwrap();
-                let location = *parent_location_offset
+
+                let max_scroll = parent.map(|p| p.natural_content_size).unwrap_or_default();
+
+                let parent_scroll_offset = parent
+                    .map(|p| {
+                        let scroll = p.scroll;
+                        let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
+
+                        Vec2::new(
+                            scroll
+                                .x
+                                .min(max_scroll.width - parent_layout.size.width)
+                                .max(0.0),
+                            scroll
+                                .y
+                                .min(max_scroll.height - parent_layout.size.height)
+                                .max(0.0),
+                        )
+                    })
+                    .unwrap_or_default();
+
+                let location = *parent_location_offset - parent_scroll_offset
                     + epaint::Vec2::new(layout.location.x, layout.location.y);
 
-                // todo: clip should not used when when overflow is set to visible
                 let node_clip = {
                     epaint::Rect {
                         min: epaint::Pos2 {
@@ -221,7 +288,7 @@ impl Renderer {
                             clip = *parent_clip_rect;
                         }
                     }
-                }               
+                }
 
                 match &(*node.tag) {
                     "text" => {
@@ -260,6 +327,17 @@ impl Renderer {
                     }
                     _ => {
                         shapes.push(self.get_rect_shape(node, clip, layout, &location));
+                        let style = self.taffy.style(taffy_id).unwrap();
+                        if style.scrollbar_width > 0.0 && style.overflow.y == Overflow::Scroll {
+                            let (container, button) = self.get_scrollbar_shape(
+                                node,
+                                style.scrollbar_width,
+                                layout,
+                                &location,
+                            );
+                            shapes.push(container);
+                            shapes.push(button);
+                        }
                     }
                 }
 
@@ -291,6 +369,110 @@ impl Renderer {
         );
 
         (primitives, texture_delta, &self.screen_descriptor)
+    }
+
+    pub fn get_scrollbar_rect(
+        &self,
+        node: &Node,
+        layout: &taffy::prelude::Layout,
+        location: &Vec2,
+        bar_width: f32,
+    ) -> Rect {
+        let styling = &node.styling;
+
+        epaint::Rect {
+            min: epaint::Pos2 {
+                x: location.x + layout.size.width - bar_width,
+                y: location.y + styling.border.width / 2.0,
+            },
+            max: epaint::Pos2 {
+                x: location.x + layout.size.width,
+                y: location.y + layout.size.height,
+            },
+        }
+    }
+
+    pub fn get_scroll_thumb_rect(
+        &self,
+        node: &Node,
+        layout: &taffy::prelude::Layout,
+        location: &Vec2,
+        bar_width: f32,
+    ) -> Rect {
+        let styling = &node.styling;
+
+        let button_width = bar_width * 0.50; // 90% of bar_width
+
+        let thumb_height = (layout.size.height / node.natural_content_size.height)
+            * (layout.size.height - styling.border.width);
+
+        let thumb_position_y = (node.scroll.y
+            / (node.natural_content_size.height - layout.size.height))
+            * (layout.size.height - styling.border.width - thumb_height);
+
+        epaint::Rect {
+            min: epaint::Pos2 {
+                x: location.x + layout.size.width - bar_width + (bar_width - button_width) / 2.0,
+                y: location.y + styling.border.width / 2.0 + thumb_position_y,
+            },
+            max: epaint::Pos2 {
+                x: location.x + layout.size.width - bar_width + (bar_width + button_width) / 2.0,
+                y: location.y + styling.border.width / 2.0 + thumb_position_y + thumb_height,
+            },
+        }
+    }
+
+    pub fn get_scrollbar_shape(
+        &self,
+        node: &Node,
+        bar_width: f32,
+        layout: &taffy::prelude::Layout,
+        location: &Vec2,
+    ) -> (ClippedShape, ClippedShape) {
+        let styling = &node.styling;
+
+        let container_shape = epaint::Shape::Rect(epaint::RectShape {
+            rect: epaint::Rect {
+                min: epaint::Pos2 {
+                    x: location.x + layout.size.width - bar_width,
+                    y: location.y + styling.border.width / 2.0,
+                },
+                max: epaint::Pos2 {
+                    x: location.x + layout.size.width,
+                    y: location.y + layout.size.height,
+                },
+            },
+            rounding: epaint::Rounding::ZERO,
+            fill: Color32::BLACK,
+            stroke: epaint::Stroke::NONE,
+            fill_texture_id: TextureId::default(),
+            uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+        });
+
+        let button_shape = epaint::Shape::Rect(epaint::RectShape {
+            rect: self.get_scroll_thumb_rect(node, layout, location, bar_width),
+            rounding: epaint::Rounding {
+                ne: 100.0,
+                nw: 100.0,
+                se: 100.0,
+                sw: 100.0,
+            },
+            fill: Color32::GRAY,
+            stroke: epaint::Stroke::NONE,
+            fill_texture_id: TextureId::default(),
+            uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+        });
+
+        (
+            ClippedShape {
+                clip_rect: container_shape.visual_bounding_rect(),
+                shape: container_shape,
+            },
+            ClippedShape {
+                clip_rect: button_shape.visual_bounding_rect(),
+                shape: button_shape,
+            },
+        )
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_text_shape")]

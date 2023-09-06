@@ -28,3 +28,10 @@ tracing = "0.1"
 [features]
 default = ["images"]
 images = ["dep:image", "dep:resvg", "dep:usvg"]
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+[[bench]]
+name = "bench"
+harness = false

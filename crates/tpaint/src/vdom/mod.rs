@@ -10,13 +10,13 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
 };
-use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2};
+use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2, Rect};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
 
-use taffy::Taffy;
-use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy};
+use taffy::{Taffy, style::Overflow, prelude::Size};
+use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy, event::MouseScrollDelta};
 
 use crate::vdom::events::{KeyInput, translate_virtual_key_code};
 
@@ -27,11 +27,30 @@ new_key_type! { pub struct NodeId; }
 #[derive(Debug)]
 pub struct Node {
     pub id: NodeId,
+    pub parent_id: Option<NodeId>,
     pub tag: Arc<str>,
     pub attrs: FxHashMap<Arc<str>, String>,
     pub children: SmallVec<[NodeId; MAX_CHILDREN]>,
     pub styling: Tailwind,
     pub scroll: Vec2,
+    pub natural_content_size: Size<f32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ScrollNode {
+    pub id: NodeId,
+    pub scrollbar: Rect,
+    pub thumb: Rect,
+
+    pub is_scrollbar_hovered: bool,
+    pub is_scrollbar_button_hovered: bool,
+    pub is_scrollbar_button_grabbed: bool,
+}
+
+impl ScrollNode {
+    pub fn get_scroll_to_position(&self, vdom: &VDom) {
+        // vdom.nodes
+    }
 }
 
 pub struct VDom {
@@ -42,7 +61,8 @@ pub struct VDom {
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     event_listeners: FxHashMap<NodeId, SmallVec<[Arc<str>; 8]>>,
     hovered: SmallVec<[NodeId; MAX_CHILDREN]>,
-    focused: Option<NodeId>
+    focused: Option<NodeId>,
+    current_scroll_node: Option<ScrollNode>
 }
 
 impl VDom {
@@ -50,11 +70,13 @@ impl VDom {
         let mut nodes = HopSlotMap::with_key();
         let root_id = nodes.insert_with_key(|id| Node {
             id,
+            parent_id: None,
             tag: "root".into(),
             attrs: FxHashMap::default(),
             children: smallvec![],
             styling: Tailwind::default(),
             scroll: Vec2::ZERO,
+            natural_content_size: Size::ZERO
         });
 
         let mut element_id_mapping = FxHashMap::default();
@@ -75,6 +97,7 @@ impl VDom {
             event_listeners: FxHashMap::default(),
             hovered: smallvec![],
             focused: None,
+            current_scroll_node: None
         }
     }
 
@@ -120,7 +143,7 @@ impl VDom {
         for template in mutations.templates {
             let mut children = SmallVec::with_capacity(template.roots.len());
             for root in template.roots {
-                let id: NodeId = self.create_template_node(root);
+                let id: NodeId = self.create_template_node(root, None);
                 children.push(id);
             }
             println!("inserting template {:?}", template.name);
@@ -131,7 +154,7 @@ impl VDom {
             match edit {
                 dioxus::core::Mutation::LoadTemplate { name, index, id } => {
                     let template_id = self.templates[name][index];
-                    let new_id = self.clone_node(template_id);
+                    let new_id = self.clone_node(template_id, None);
                     self.stack.push(new_id);
                     self.element_id_mapping.insert(id, new_id);
                 }
@@ -142,10 +165,34 @@ impl VDom {
                 dioxus::core::Mutation::ReplacePlaceholder { path, m } => {
                     let new_nodes = self.split_stack(self.stack.len() - m);
                     let old_node_id = self.load_path(path);
-                    let node = self.nodes.get_mut(old_node_id).unwrap();
-                    node.children = new_nodes;
+
+                    for new_id in new_nodes {
+                        let parent_id = {
+                            self.nodes[old_node_id].parent_id.unwrap()
+                        };
+
+                        {
+                            let node = self.nodes.get_mut(new_id).unwrap();
+                            node.parent_id = Some(parent_id);
+                        }
+                        
+                        let parent = self.nodes.get_mut(parent_id).unwrap();
+                        
+                        let index = parent
+                            .children
+                            .iter()
+                            .position(|child| {
+                                *child == old_node_id
+                            })
+                            .unwrap();
+
+                        parent.children.insert(index, new_id);
+                    }
+
+                    self.remove_node(old_node_id);
                 }
                 dioxus::core::Mutation::AppendChildren { m, id } => {
+                    // println!("stack_len {}", self.stack.len());
                     let children = self.split_stack(self.stack.len() - m);
                     let parent = self.element_id_mapping[&id];
                     for child in children {
@@ -212,28 +259,21 @@ impl VDom {
     }
 
     /// useful for debugging
-    pub fn print_tree(&self, taffy: &Taffy, id: NodeId, depth: usize) {
+    pub fn print_tree(&self, _taffy: &Taffy, id: NodeId, depth: usize) {
         let node = self.nodes.get(id).unwrap();
         match &(*node.tag) {
             "text" => {
-                if let Some(styling) = node.styling.clone().node {
-                    let layout = taffy.layout(styling).unwrap();
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), layout);
-                } else {
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("value").unwrap_or(&"".to_string()), node.styling);
-                }
+                // cut it to 50 chars max
+                let ellipsis_text = node.attrs.get("value").unwrap_or(&"".to_string()).chars().take(50).collect::<String>();
+
+                println!("{}{} -> {}", " ".repeat(depth), node.tag, ellipsis_text);
             }
             _ => {
-                if let Some(styling) = node.styling.clone().node {
-                    let layout = taffy.layout(styling).unwrap();
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag, node.attrs.get("class").unwrap_or(&String::new()), layout);
-                } else {
-                    println!("{}{} -> {} {:?}", " ".repeat(depth), node.tag,node.attrs.get("class").unwrap_or(&String::new()), node.styling);
-                }
+                println!("{}{} -> {}", " ".repeat(depth), node.tag, node.attrs.get("class").unwrap_or(&String::new()));
             }
         }
         for child in node.children.iter() {
-            self.print_tree(taffy,*child, depth + 1);
+            self.print_tree(_taffy,*child, depth + 1);
         }
     }
 
@@ -260,7 +300,7 @@ impl VDom {
     }
 
     #[tracing::instrument(skip_all, name = "VDom::create_template_node")]
-    fn create_template_node(&mut self, node: &TemplateNode) -> NodeId {
+    fn create_template_node(&mut self, node: &TemplateNode, parent_id: Option<NodeId>) -> NodeId {
         match *node {
             TemplateNode::Element {
                 tag,
@@ -271,6 +311,7 @@ impl VDom {
                 let mut node = Node {
                     // will instantly be overwritten by insert_with_key
                     id: NodeId::default(),
+                    parent_id,
                     tag: self.get_tag_or_attr_key(tag),
                     attrs: attrs
                         .iter()
@@ -285,6 +326,7 @@ impl VDom {
                     children: smallvec![],
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
+                    natural_content_size: Size::ZERO,
                 };
                 let parent = self.nodes.insert_with_key(|id| {
                     node.id = id;
@@ -292,7 +334,7 @@ impl VDom {
                 });
 
                 for child in children {
-                    let child = self.create_template_node(child);
+                    let child = self.create_template_node(child, Some(parent));
                     self.nodes[parent].children.push(child);
                 }
 
@@ -304,11 +346,13 @@ impl VDom {
 
                 self.nodes.insert_with_key(|id| { Node {
                     id,
+                    parent_id,
                     tag: "text".into(),
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
+                    natural_content_size: Size::ZERO,
                 }})
             }
 
@@ -318,11 +362,13 @@ impl VDom {
 
                 self.nodes.insert_with_key(|id| { Node {
                     id,
+                    parent_id,
                     tag: "view".into(),
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
+                    natural_content_size: Size::ZERO,
                 }})
             }
 
@@ -331,11 +377,13 @@ impl VDom {
                 attrs.insert(self.get_tag_or_attr_key("value"), String::new());
                 self.nodes.insert_with_key(|id| { Node {
                     id,
+                    parent_id,
                     tag: "text".into(),
                     children: smallvec![],
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
+                    natural_content_size: Size::ZERO,
                 }})
             },
         }
@@ -343,15 +391,17 @@ impl VDom {
 
     /// Clone node and its children, they all get new ids
     #[tracing::instrument(skip_all, name = "VDom::clone_node")]
-    pub fn clone_node(&mut self, node_id: NodeId) -> NodeId {
+    pub fn clone_node(&mut self, node_id: NodeId, parent_id: Option<NodeId>) -> NodeId {
         let node = self.nodes.get(node_id).unwrap();
         let mut new_node = Node {
             id: NodeId::default(),
+            parent_id,
             tag: node.tag.clone(),
             attrs: node.attrs.clone(),
             children: smallvec![],
             styling: node.styling.clone(),
             scroll: Vec2::ZERO,
+            natural_content_size: Size::ZERO,
         };
         let new_node_id = self.nodes.insert_with_key(|id| {
             new_node.id = id;
@@ -371,7 +421,7 @@ impl VDom {
         }
 
         for i in 0..count {
-            let id = self.clone_node(children[i]);
+            let id = self.clone_node(children[i], Some(new_node_id));
             self.nodes[new_node_id].children.push(id); 
         }
 
@@ -382,7 +432,6 @@ impl VDom {
         self.element_id_mapping[&ElementId(0)]
     }
 
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree")]
     fn traverse_tree(&self, id: NodeId, callback: &mut impl FnMut(&Node) -> bool) {
         let node = self.nodes.get(id).unwrap();
         let should_continue = callback(node);
@@ -394,7 +443,6 @@ impl VDom {
         }
     }
     
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_with_parent")]
     fn traverse_tree_with_parent(&self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&Node, Option<&Node>) -> bool) {
         let node = self.nodes.get(id).unwrap();
         let should_continue = callback(node, 
@@ -410,7 +458,6 @@ impl VDom {
         }
     }
 
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_with_parent_and_data")]
     fn traverse_tree_with_parent_and_data<T>(
         &self,
         id: NodeId,
@@ -433,7 +480,6 @@ impl VDom {
         }
     }
 
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut_with_parent_and_data")]
     fn traverse_tree_mut_with_parent_and_data<T>(&mut self, id: NodeId, parent_id: Option<NodeId>, data: &T, callback: &mut impl FnMut(&mut Node, Option<&Node>, &T) -> (bool, T)) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -473,7 +519,6 @@ impl VDom {
         }
     }
 
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut_with_parent")]
     fn traverse_tree_mut_with_parent(&mut self, id: NodeId, parent_id: Option<NodeId>, callback: &mut impl FnMut(&mut Node, Option<&Node>) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
@@ -511,13 +556,12 @@ impl VDom {
         }
     }
 
-    #[tracing::instrument(skip_all, name = "VDom::traverse_tree_mut")]
     pub fn traverse_tree_mut(&mut self, root_id: NodeId, callback: &mut impl FnMut(&mut Node) -> bool) {
         let mut children: [NodeId; MAX_CHILDREN] = [NodeId::default(); MAX_CHILDREN];
         let mut count = 0;
     
         {
-            let parent = self.nodes.get_mut(root_id).unwrap();
+            let parent = self.nodes.get_mut(root_id).unwrap_or_else(|| panic!("node with id {:?} not found", root_id));
             let should_continue = callback(parent);
 
             if !should_continue {
@@ -536,6 +580,20 @@ impl VDom {
         for i in 0..count {
             self.traverse_tree_mut(children[i], callback);
         }
+    }
+
+    #[tracing::instrument(skip_all, name = "VDom::remove_node")]
+    pub fn remove_node(&mut self, id: NodeId) {
+        let parent = { self.nodes.get(id).unwrap().parent_id.unwrap() };
+        self.traverse_tree_mut(parent, &mut |node| {
+            if let Some(index) = node.children.iter().position(|child| *child == id) {
+                node.children.remove(index);
+                false
+            } else {
+                true
+            }
+        });
+        self.nodes.remove(id);
     }
 }
 
@@ -560,7 +618,7 @@ pub struct KeyboardState {
 }
 
 pub struct DomEventLoop {
-    vdom: Arc<Mutex<VDom>>,
+    pub vdom: Arc<Mutex<VDom>>,
     dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
 
     pub renderer: Renderer,
@@ -601,7 +659,6 @@ impl DomEventLoop {
                         }
 
                         let mutations = vdom.render_immediate();
-                        // dbg!(&mutations);
                         render_vdom.lock().unwrap().apply_mutations(mutations);
                         
                         event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
@@ -669,12 +726,36 @@ impl DomEventLoop {
             }
 
             WindowEvent::MouseWheel { delta, phase, .. } => {                
-                let elements = self.get_elements_on_pos(self.cursor_state.last_pos);
                 let mut vdom = self.vdom.lock().unwrap();
+                let Some(scroll_node) = vdom.current_scroll_node else {
+                    return false;
+                };
+                let node = vdom.nodes.get_mut(scroll_node.id).unwrap();
 
+                let tick_size = 30.0;
+                let content_size = node.natural_content_size;
+                let viewport_size = self.renderer.taffy.layout(node.styling.node.unwrap()).unwrap().size;
+            
+                // Calculate the maximum scrollable offsets
+                let max_scroll = Vec2::new(
+                    content_size.width - viewport_size.width,
+                    content_size.height - viewport_size.height
+                );
+            
+                match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {                                             
+                        node.scroll -= Vec2::new(*x * tick_size, *y * tick_size);
+                    },
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        node.scroll += Vec2::new(pos.x as f32, pos.y as f32);
+                    }
+                }
+            
+                // Clamp the scroll values to ensure they're within acceptable ranges
+                node.scroll.x = node.scroll.x.max(0.0).min(max_scroll.x);
+                node.scroll.y = node.scroll.y.max(0.0).min(max_scroll.y);
 
-
-                false
+                true
             }
 
             WindowEvent::ReceivedCharacter(c) => {
@@ -709,6 +790,8 @@ impl DomEventLoop {
         let root_id = vdom.get_root_id();
         let mut elements = smallvec![];
         let mut cursor: (epaint::text::cursor::Cursor, NodeId) = (epaint::text::cursor::Cursor::default(), NodeId::default());
+        let mut current_scroll_node = vdom.current_scroll_node;
+        let scroll_is_being_dragged = current_scroll_node.map(|s| s.is_scrollbar_button_grabbed).unwrap_or_default();
         vdom.traverse_tree_with_parent_and_data(
             root_id,
             None,
@@ -719,24 +802,68 @@ impl DomEventLoop {
             };
 
             let layout = self.renderer.taffy.layout(node_id).unwrap();
+            let style = self.renderer.taffy.style(node_id).unwrap();
             let location = *parent_location_offset
                 + epaint::Vec2::new(layout.location.x, layout.location.y);
-
-            if translated_mouse_pos.x >= location.x
-                && translated_mouse_pos.x <= location.x + layout.size.width
-                && translated_mouse_pos.y >= location.y
-                && translated_mouse_pos.y <= location.y + layout.size.height
+            let node_rect = epaint::Rect {
+                min: location.to_pos2(),
+                max: Pos2 { x: location.x + layout.size.width, y: location.y + layout.size.height },
+            };
+            
+            if node_rect.contains(translated_mouse_pos)
             {
                 elements.push(node.id);       
                 if node.tag == "text".into() {
                     cursor = self.get_global_cursor(location, translated_mouse_pos, node, parent.unwrap());
                 }     
+
+                // is the mouse on a scroll element and not already being dragged scrolling?
+                if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !scroll_is_being_dragged {
+                    let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width);
+                    let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width);
+
+                    // is the mouse on a scroll bar?
+                    if scrollbar.contains(translated_mouse_pos)
+                    {
+
+                        // is the mouse on the scroll thumb?
+                        if thumb.contains(translated_mouse_pos) {
+                            current_scroll_node = Some(ScrollNode {
+                                id: node.id,
+                                scrollbar,
+                                thumb,
+                                is_scrollbar_hovered: true,
+                                is_scrollbar_button_hovered: true,
+                                is_scrollbar_button_grabbed: false,
+                            });
+                        } else {
+                            current_scroll_node = Some(ScrollNode {
+                                id: node.id,
+                                scrollbar,
+                                thumb,
+                                is_scrollbar_hovered: true,
+                                is_scrollbar_button_grabbed: false,
+                                is_scrollbar_button_hovered: false,
+                            });
+                        }
+                    } else {
+                        current_scroll_node = Some(ScrollNode {
+                            id: node.id,
+                            scrollbar,
+                            thumb,
+                            is_scrollbar_hovered: false,
+                            is_scrollbar_button_grabbed: false,
+                            is_scrollbar_button_hovered: false,
+                        });
+                    }
+                }
             }
 
             (true, location)
         });
 
         self.cursor_state.cursor = cursor.0;
+        vdom.current_scroll_node = current_scroll_node;
         vdom.hovered = elements.clone();
         elements
     }
@@ -792,7 +919,33 @@ impl DomEventLoop {
             }
         }
 
-        // dioxus will request redraws so we don't need to
+
+        // handle scroll thumb dragging
+        if self.cursor_state.is_button_down {
+            let mut vdom = self.vdom.lock().unwrap();
+            if let Some(scroll_node) = vdom.current_scroll_node {
+                if scroll_node.is_scrollbar_button_grabbed {
+                    let drag_delta_y = self.cursor_state.last_pos.y - self.cursor_state.drag_start_pos.y;
+                    let drag_percentage = drag_delta_y / scroll_node.scrollbar.height();
+
+                    let node = &mut vdom.nodes[scroll_node.id];
+                    let content_height = node.natural_content_size.height;
+                    let viewport_height = scroll_node.scrollbar.height();
+
+                    let max_scrollable_distance = content_height - viewport_height;
+
+                    // Adjust the scroll position based on drag percentage
+                    node.scroll.y += drag_percentage * max_scrollable_distance;
+
+                    // Clamp the scroll position to ensure it doesn't go out of bounds
+                    node.scroll.y = node.scroll.y.clamp(0.0, max_scrollable_distance);
+
+                    // Update the drag_start_pos to the current position for the next move event
+                    self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
+                }
+            }
+        }
+
         true
     }
 
@@ -819,6 +972,43 @@ impl DomEventLoop {
         if state == winit::event::ElementState::Pressed {
             self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
         }
+
+
+        {
+            let mut vdom = self.vdom.lock().unwrap();
+            if let Some(scroll_node) = vdom.current_scroll_node {
+                match state {
+                    winit::event::ElementState::Pressed => {
+                        if scroll_node.thumb.contains(self.cursor_state.last_pos) {
+                            vdom.current_scroll_node = Some(ScrollNode {
+                                is_scrollbar_button_grabbed: true,
+                                ..scroll_node
+                            });
+                        } else if scroll_node.scrollbar.contains(self.cursor_state.last_pos) {
+                            let click_y_relative = self.cursor_state.last_pos.y - scroll_node.scrollbar.min.y;
+                            let click_percentage = click_y_relative / scroll_node.scrollbar.height();
+            
+                            let node = &mut vdom.nodes[scroll_node.id];
+                            let content_height = node.natural_content_size.height;
+                            let viewport_height = scroll_node.scrollbar.height();
+            
+                            let thumb_height = (viewport_height / content_height) * scroll_node.scrollbar.height();
+                            let scroll_to_y_centered = click_percentage * (content_height - viewport_height) - (thumb_height / 2.0);
+                            let scroll_to_y_final = scroll_to_y_centered.clamp(0.0, content_height - viewport_height);
+                            node.scroll.y = scroll_to_y_final;
+                        }
+                    }
+                    winit::event::ElementState::Released => {
+                        vdom.current_scroll_node = Some(ScrollNode {
+                            is_scrollbar_button_grabbed: false,
+                            ..scroll_node
+                        });
+                    }
+                }
+            };
+        }
+        
+        
         
         let pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
             button,
@@ -847,7 +1037,7 @@ impl DomEventLoop {
                     self.send_event_to_element(node_id, "mouseup", not_pressed_data.clone());
                 }
             }
-        }
+        }        
 
         true
     }

@@ -16,3 +16,9 @@ glow = "0.12.3"
 log = "0.4.20"
 simple_logger = "4.2.0"
 example_ui = { path = "../example_ui" }
+tracing-subscriber = { version = "0.3.17", optional = true }
+tracing-tracy = { version = "0.10.3", optional = true }
+tracing = { version = "0.1", optional = true }
+
+[features]
+tracy = ["dep:tracing-subscriber", "dep:tracing-tracy", "dep:tracing"]

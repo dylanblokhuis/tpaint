@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;
 use taffy::prelude::*;
-use taffy::style::{Style, Overflow};
+use taffy::style::{Overflow, Style};
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 
@@ -239,6 +239,7 @@ impl Tailwind {
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::handle_class")]
+    #[inline]
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {
         if class == "flex-col" {
             style.display = Display::Flex;
@@ -246,6 +247,27 @@ impl Tailwind {
         } else if class == "flex-row" {
             style.display = Display::Flex;
             style.flex_direction = FlexDirection::Row;
+        }
+
+        if let Some(class) = class.strip_prefix("flex-") {
+            match class {
+                "wrap" => style.flex_wrap = FlexWrap::Wrap,
+                "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
+                "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
+                _ => {}
+            }
+        }
+
+        if class == "shrink" {
+            style.flex_shrink = 1.0;
+        } else if class == "shrink-0" {
+            style.flex_shrink = 0.0;
+        }
+
+        if class == "grow" {
+            style.flex_grow = 1.0;
+        } else if class == "grow-0" {
+            style.flex_grow = 0.0;
         }
 
         if let Some(class) = class.strip_prefix("w-") {
@@ -419,15 +441,6 @@ impl Tailwind {
             }
         }
 
-        if let Some(class) = class.strip_prefix("flex-") {
-            match class {
-                "wrap" => style.flex_wrap = FlexWrap::Wrap,
-                "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
-                "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
-                _ => {}
-            }
-        }
-
         if let Some(class) = class.strip_prefix("gap-") {
             let gap = LengthPercentage::Length(class.parse::<f32>().unwrap_or(0.0));
             style.gap = Size {
@@ -473,6 +486,12 @@ impl Tailwind {
             style.inset.bottom = LengthPercentageAuto::Length(class.parse::<f32>().unwrap_or(0.0));
         }
 
+        style.scrollbar_width = match class {
+            "scrollbar-default" => 10.0,
+            "scrollbar-none" => 0.0,
+            _ => 0.0,
+        };
+
         if let Some(class) = class.strip_prefix("overflow-") {
             match class {
                 "scroll" => {
@@ -494,6 +513,46 @@ impl Tailwind {
                         x: Overflow::Visible,
                         y: Overflow::Visible,
                     }
+                }
+
+                _ => {
+                    log::error!("Unknown overflow class: {}", class);
+                }
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("overflow-x-") {
+            match class {
+                "scroll" => {
+                    style.overflow.x = Overflow::Scroll;
+                }
+
+                "hidden" => {
+                    style.overflow.x = Overflow::Hidden;
+                }
+
+                "visible" => {
+                    style.overflow.x = Overflow::Visible;
+                }
+
+                _ => {
+                    log::error!("Unknown overflow class: {}", class);
+                }
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("overflow-y-") {
+            match class {
+                "scroll" => {
+                    style.overflow.y = Overflow::Scroll;
+                }
+
+                "hidden" => {
+                    style.overflow.y = Overflow::Hidden;
+                }
+
+                "visible" => {
+                    style.overflow.y = Overflow::Visible;
                 }
 
                 _ => {

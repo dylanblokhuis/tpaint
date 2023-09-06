@@ -140,6 +140,15 @@ impl GlutinWindowContext {
 fn main() {
     // simple_logger::SimpleLogger::new().init().unwrap();
 
+    #[cfg(feature = "tracy")]
+    {
+        use tracing_subscriber::layer::SubscriberExt;
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::registry().with(tracing_tracy::TracyLayer::new()),
+        )
+        .expect("set up the subscriber");
+    }
+
     let clear_color = [1.0, 1.0, 1.0];
 
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
