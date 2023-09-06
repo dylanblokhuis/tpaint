@@ -1,7 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+use simple_logger::SimpleLogger;
 use tpaint::DomEventLoop;
 use tpaint_glow::painter::Painter;
+
+#[cfg(feature = "hot-reload")]
+use tpaint::prelude::dioxus_hot_reload;
+
+mod app;
+
 struct GlutinWindowContext {
     window: winit::window::Window,
     gl_context: glutin::context::PossiblyCurrentContext,
@@ -138,7 +145,8 @@ impl GlutinWindowContext {
 }
 
 fn main() {
-    // simple_logger::SimpleLogger::new().init().unwrap();
+    #[cfg(feature = "hot-reload")]
+    dioxus_hot_reload::hot_reload_init!();
 
     #[cfg(feature = "tracy")]
     {
@@ -149,6 +157,8 @@ fn main() {
         .expect("set up the subscriber");
     }
 
+    SimpleLogger::new().init().unwrap();
+
     let clear_color = [1.0, 1.0, 1.0];
 
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
@@ -156,7 +166,7 @@ fn main() {
     let gl = std::sync::Arc::new(gl);
 
     let mut app = DomEventLoop::spawn(
-        example_ui::app,
+        app::app,
         gl_window.window().inner_size(),
         gl_window.window().scale_factor() as f32,
         event_loop.create_proxy(),

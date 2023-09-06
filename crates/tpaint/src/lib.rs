@@ -53,6 +53,12 @@ macro_rules! impl_event {
 pub use vdom::DomEventLoop;
 
 pub mod prelude {
+
+    #[cfg(feature = "hot-reload")]
+    pub mod dioxus_hot_reload {
+        pub use dioxus_hot_reload::*;
+    }
+
     pub mod dioxus_elements {
         pub type AttributeDescription = (&'static str, Option<&'static str>, bool);
 

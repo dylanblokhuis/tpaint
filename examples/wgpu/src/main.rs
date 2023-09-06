@@ -5,9 +5,17 @@ use tpaint::DomEventLoop;
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
 
+#[cfg(feature = "hot-reload")]
+use tpaint::prelude::dioxus_hot_reload;
+
+mod app;
+
 type UserEvent = ();
 
 fn main() {
+    #[cfg(feature = "hot-reload")]
+    dioxus_hot_reload::hot_reload_init!();
+
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = winit::window::WindowBuilder::new()
         .with_decorations(true)
@@ -61,7 +69,7 @@ fn main() {
 
     // let mut ctx = RenderContext::new(&device, config.format, None, 1, size);
     let mut app = DomEventLoop::spawn(
-        example_ui::app,
+        app::app,
         window.inner_size(),
         window.scale_factor() as f32,
         event_loop.create_proxy(),

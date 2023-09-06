@@ -132,12 +132,39 @@ impl VDom {
         other
     }
 
+    pub fn insert_node_before(
+        &mut self,
+        old_node_id: NodeId,
+        new_id: NodeId,
+    ) {
+        let parent_id = {
+            self.nodes[old_node_id].parent_id.unwrap()
+        };
+
+        {
+            let node = self.nodes.get_mut(new_id).unwrap();
+            node.parent_id = Some(parent_id);
+        }
+        
+        let parent = self.nodes.get_mut(parent_id).unwrap();
+        
+        let index = parent
+            .children
+            .iter()
+            .position(|child| {
+                *child == old_node_id
+            })
+            .unwrap();
+
+        parent.children.insert(index, new_id);
+    }
+
     #[tracing::instrument(skip_all, name = "VDom::apply_mutations")]
     pub fn apply_mutations(&mut self, mutations: Mutations) {
         for template in mutations.templates {
             let mut children = SmallVec::with_capacity(template.roots.len());
             for root in template.roots {
-                let id: NodeId = self.create_template_node(root, None);
+                let id: NodeId = self.create_template_node(root, Some(self.element_id_mapping[&ElementId(0)]));
                 children.push(id);
             }
             println!("inserting template {:?}", template.name);
@@ -148,7 +175,7 @@ impl VDom {
             match edit {
                 dioxus::core::Mutation::LoadTemplate { name, index, id } => {
                     let template_id = self.templates[name][index];
-                    let new_id = self.clone_node(template_id, None);
+                    let new_id = self.clone_node(template_id, Some(self.element_id_mapping[&ElementId(0)]));
                     self.stack.push(new_id);
                     self.element_id_mapping.insert(id, new_id);
                 }
@@ -156,35 +183,7 @@ impl VDom {
                     let node_id = self.load_path(path);
                     self.element_id_mapping.insert(id, node_id);
                 }
-                dioxus::core::Mutation::ReplacePlaceholder { path, m } => {
-                    let new_nodes = self.split_stack(self.stack.len() - m);
-                    let old_node_id = self.load_path(path);
-
-                    for new_id in new_nodes {
-                        let parent_id = {
-                            self.nodes[old_node_id].parent_id.unwrap()
-                        };
-
-                        {
-                            let node = self.nodes.get_mut(new_id).unwrap();
-                            node.parent_id = Some(parent_id);
-                        }
-                        
-                        let parent = self.nodes.get_mut(parent_id).unwrap();
-                        
-                        let index = parent
-                            .children
-                            .iter()
-                            .position(|child| {
-                                *child == old_node_id
-                            })
-                            .unwrap();
-
-                        parent.children.insert(index, new_id);
-                    }
-
-                    self.remove_node(old_node_id);
-                }
+               
                 dioxus::core::Mutation::AppendChildren { m, id } => {
                     // println!("stack_len {}", self.stack.len());
                     let children = self.split_stack(self.stack.len() - m);
@@ -245,6 +244,26 @@ impl VDom {
                     let node = self.nodes.get_mut(node_id).unwrap();
                     node.attrs.insert(key, value.to_string());
                 }
+
+                dioxus::core::Mutation::ReplaceWith { id, m } => {
+                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let old_node_id = self.element_id_mapping[&id];
+                    for new in new_nodes {
+                        self.insert_node_before(old_node_id, new);
+                    }
+                    self.remove_node(old_node_id);
+                }
+                dioxus::core::Mutation::ReplacePlaceholder { path, m } => {
+                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let old_node_id = self.load_path(path);
+
+                    for new_id in new_nodes {
+                        self.insert_node_before(old_node_id, new_id);
+                    }   
+
+                    self.remove_node(old_node_id);
+                }
+                
                 _ => {
                     todo!("unimplemented mutation {:?}", edit);
                 }
@@ -625,11 +644,19 @@ const MAX_CHILDREN: usize = 1024;
 
 impl DomEventLoop {
     pub fn spawn<E: Debug + Send + Sync + Clone>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E) -> DomEventLoop {
-        let (dom_event_sender, mut dom_event_receiver) =
-            tokio::sync::mpsc::unbounded_channel::<DomEvent>();
-
+        let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
         let render_vdom = Arc::new(Mutex::new(VDom::new()));
 
+        #[cfg(all(feature = "hot-reload", debug_assertions))]
+        let (hot_reload_tx, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<dioxus_hot_reload::HotReloadMsg>();
+        #[cfg(not(all(feature = "hot-reload", debug_assertions)))]
+        let (_, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+        
+        #[cfg(all(feature = "hot-reload", debug_assertions))]
+        dioxus_hot_reload::connect(move |msg| {
+            let _ = hot_reload_tx.send(msg);
+        });
+        
         std::thread::spawn({
             let render_vdom = render_vdom.clone();
             move || {
@@ -646,6 +673,19 @@ impl DomEventLoop {
                     loop {
                         tokio::select! {
                             _ = vdom.wait_for_work() => {},
+                            Some(_msg) = hot_reload_rx.recv() => {
+                                #[cfg(all(feature = "hot-reload", debug_assertions))]
+                                {
+                                    match _msg {
+                                        dioxus_hot_reload::HotReloadMsg::UpdateTemplate(template) => {
+                                            vdom.replace_template(template);
+                                        }
+                                        dioxus_hot_reload::HotReloadMsg::Shutdown => {
+                                            std::process::exit(0);
+                                        }
+                                    }
+                                }                               
+                            }
                             Some(event) = dom_event_receiver.recv() => {
                                 let DomEvent { name, data, element_id, bubbles } = event;
                                 vdom.handle_event(&name, data.deref().clone().into_any(), element_id, bubbles);

@@ -515,9 +515,7 @@ impl Tailwind {
                     }
                 }
 
-                _ => {
-                    log::error!("Unknown overflow class: {}", class);
-                }
+                _ => {}
             }
         }
 
@@ -535,9 +533,7 @@ impl Tailwind {
                     style.overflow.x = Overflow::Visible;
                 }
 
-                _ => {
-                    log::error!("Unknown overflow class: {}", class);
-                }
+                _ => {}
             }
         }
 
@@ -555,9 +551,7 @@ impl Tailwind {
                     style.overflow.y = Overflow::Visible;
                 }
 
-                _ => {
-                    log::error!("Unknown overflow class: {}", class);
-                }
+                _ => {}
             }
         }
     }

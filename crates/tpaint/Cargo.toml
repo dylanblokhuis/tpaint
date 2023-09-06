@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 dioxus = { version = "0.4.0", default-features = false, features = ["macro", "hooks"] }
+dioxus-hot-reload = { version = "0.4.0", features = ["file_watcher"], optional = true }
 epaint = { git = "https://github.com/emilk/egui", features = ["bytemuck", "default", "log"] }
 lazy_static = "1.4.0"
 log = "0.4.20"
@@ -28,6 +29,7 @@ tracing = "0.1"
 [features]
 default = ["images"]
 images = ["dep:image", "dep:resvg", "dep:usvg"]
+hot-reload = ["dep:dioxus-hot-reload"]
 
 [dev-dependencies]
 criterion = "0.5.1"
