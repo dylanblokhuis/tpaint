@@ -157,7 +157,7 @@ fn main() {
         .expect("set up the subscriber");
     }
 
-    SimpleLogger::new().init().unwrap();
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
 
     let clear_color = [1.0, 1.0, 1.0];
 

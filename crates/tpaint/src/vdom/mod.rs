@@ -39,12 +39,159 @@ pub struct Node {
 #[derive(Debug, Clone, Copy)]
 pub struct ScrollNode {
     pub id: NodeId,
-    pub scrollbar: Rect,
-    pub thumb: Rect,
+    pub vertical_scrollbar: Option<Rect>,
+    pub vertical_thumb: Option<Rect>,
+    pub horizontal_scrollbar: Option<Rect>,
+    pub horizontal_thumb: Option<Rect>,
 
-    pub is_scrollbar_hovered: bool,
-    pub is_scrollbar_button_hovered: bool,
-    pub is_scrollbar_button_grabbed: bool,
+    pub is_vertical_scrollbar_hovered: bool,
+    pub is_horizontal_scrollbar_hovered: bool,
+    pub is_vertical_scrollbar_button_hovered: bool,
+    pub is_horizontal_scrollbar_button_hovered: bool,
+    pub is_vertical_scrollbar_button_grabbed: bool,
+    pub is_horizontal_scrollbar_button_grabbed: bool,
+
+    pub thumb_drag_start_pos: Pos2,
+}
+
+impl ScrollNode {
+    pub fn new(id: NodeId) -> ScrollNode {
+        ScrollNode {
+            id,
+            vertical_scrollbar: None,
+            vertical_thumb: None,
+            horizontal_scrollbar: None,
+            horizontal_thumb: None,
+            is_vertical_scrollbar_hovered: false,
+            is_horizontal_scrollbar_hovered: false,
+            is_vertical_scrollbar_button_hovered: false,
+            is_horizontal_scrollbar_button_hovered: false,
+            is_vertical_scrollbar_button_grabbed: false,
+            is_horizontal_scrollbar_button_grabbed: false,
+            
+            thumb_drag_start_pos: Pos2::ZERO,
+        }
+    }
+
+    pub fn set_vertical_scrollbar(&mut self, vertical_scrollbar: Rect, vertical_thumb: Rect) {
+        self.vertical_scrollbar = Some(vertical_scrollbar);
+        self.vertical_thumb = Some(vertical_thumb);    
+    }
+
+    pub fn set_horizontal_scrollbar(&mut self, horizontal_scrollbar: Rect, horizontal_thumb: Rect) {
+        self.horizontal_scrollbar = Some(horizontal_scrollbar);
+        self.horizontal_thumb = Some(horizontal_thumb);    
+    }
+
+    pub fn on_mouse_move(&mut self, mouse_pos: &Pos2, content_size: Size<f32>,  scroll: &mut Vec2) {
+        if let Some(vertical_scrollbar) = self.vertical_scrollbar {
+            let is_hovered = vertical_scrollbar.contains(*mouse_pos);
+            self.is_vertical_scrollbar_hovered = is_hovered;
+        }
+
+        if let Some(horizontal_scrollbar) = self.horizontal_scrollbar {
+            let is_hovered = horizontal_scrollbar.contains(*mouse_pos);
+            self.is_horizontal_scrollbar_hovered = is_hovered;
+        }
+
+        if let Some(vertical_thumb) = self.vertical_thumb {
+            let is_hovered = vertical_thumb.contains(*mouse_pos);
+            self.is_vertical_scrollbar_hovered = is_hovered;
+            self.is_vertical_scrollbar_button_hovered = is_hovered;
+            let vertical_scrollbar = self.vertical_scrollbar.unwrap();
+
+            if self.is_vertical_scrollbar_button_grabbed {
+                let drag_delta_y = mouse_pos.y - self.thumb_drag_start_pos.y;
+                let drag_percentage = drag_delta_y / vertical_scrollbar.height();
+
+                let viewport_height = vertical_scrollbar.height();
+                let max_scrollable_distance = content_size.height - viewport_height - if let Some(horizontal_scrollbar) = self.horizontal_scrollbar { horizontal_scrollbar.height() } else { 0.0 };
+
+                scroll.y += drag_percentage * max_scrollable_distance;
+                scroll.y = scroll.y.clamp(0.0, max_scrollable_distance);
+
+                self.thumb_drag_start_pos = *mouse_pos;
+            }
+        }
+
+        if let Some(horizontal_thumb) = self.horizontal_thumb {
+            let is_hovered = horizontal_thumb.contains(*mouse_pos);
+            self.is_horizontal_scrollbar_hovered = is_hovered;
+            self.is_horizontal_scrollbar_button_hovered = is_hovered;
+            let horizontal_scrollbar = self.horizontal_scrollbar.unwrap();
+
+            if self.is_horizontal_scrollbar_button_grabbed {
+                let drag_delta_x = mouse_pos.x - self.thumb_drag_start_pos.x;
+                let drag_percentage = drag_delta_x / horizontal_scrollbar.width();
+
+                let viewport_width = horizontal_scrollbar.width();
+                let max_scrollable_distance = content_size.width - viewport_width - if let Some(vertical_scrollbar) = self.vertical_scrollbar { vertical_scrollbar.width() } else { 0.0 };
+
+                scroll.x += drag_percentage * max_scrollable_distance;
+                scroll.x = scroll.x.clamp(0.0, max_scrollable_distance);
+
+                self.thumb_drag_start_pos = *mouse_pos;
+            }
+        }
+    }
+
+    pub fn on_click(&mut self, mouse_pos: &Pos2, content_size: Size<f32>, scroll: &mut Vec2) {
+        if let Some(vertical_scrollbar) = self.vertical_scrollbar {
+            let is_hovered = vertical_scrollbar.contains(*mouse_pos);
+            self.is_vertical_scrollbar_hovered = is_hovered;
+            self.is_vertical_scrollbar_button_hovered = is_hovered && !self.vertical_thumb.unwrap().contains(*mouse_pos);
+
+            if is_hovered {
+                let click_y_relative = mouse_pos.y - vertical_scrollbar.min.y;
+                let click_percentage = click_y_relative / vertical_scrollbar.height();
+                let viewport_height = vertical_scrollbar.height();
+    
+                let thumb_height = (viewport_height / content_size.height) * vertical_scrollbar.height();
+                let scroll_to_y_centered = click_percentage * (content_size.height - viewport_height) - (thumb_height / 2.0);
+                let scroll_to_y_final = scroll_to_y_centered.clamp(0.0, content_size.height - viewport_height);
+                scroll.y = scroll_to_y_final;
+            }
+        }
+
+        if let Some(horizontal_scrollbar) = self.horizontal_scrollbar {
+            let is_hovered = horizontal_scrollbar.contains(*mouse_pos);
+            self.is_horizontal_scrollbar_hovered = is_hovered;
+            self.is_horizontal_scrollbar_button_hovered = is_hovered && !self.horizontal_thumb.unwrap().contains(*mouse_pos);
+
+            if is_hovered {
+                let click_x_relative = mouse_pos.x - horizontal_scrollbar.min.x;
+                let click_percentage = click_x_relative / horizontal_scrollbar.width();
+                let viewport_width = horizontal_scrollbar.width();
+    
+                let thumb_width = (viewport_width / content_size.width) * horizontal_scrollbar.width();
+                let scroll_to_x_centered = click_percentage * (content_size.width - viewport_width) - (thumb_width / 2.0);
+                let scroll_to_x_final = scroll_to_x_centered.clamp(0.0, content_size.width - viewport_width);
+                scroll.x = scroll_to_x_final;
+            }
+        }
+
+        if let Some(vertical_thumb) = self.vertical_thumb {
+            let is_hovered = vertical_thumb.contains(*mouse_pos);
+            self.is_vertical_scrollbar_hovered = is_hovered;
+            self.is_vertical_scrollbar_button_hovered = is_hovered;
+            self.is_vertical_scrollbar_button_grabbed = is_hovered;
+
+            if is_hovered {
+                self.thumb_drag_start_pos = *mouse_pos;        
+            }
+        }
+
+        if let Some(horizontal_thumb) = self.horizontal_thumb {
+            let is_hovered = horizontal_thumb.contains(*mouse_pos);
+            self.is_horizontal_scrollbar_hovered = is_hovered;
+            self.is_horizontal_scrollbar_button_hovered = is_hovered;
+            self.is_horizontal_scrollbar_button_grabbed = is_hovered;
+
+            if is_hovered {
+                self.thumb_drag_start_pos = *mouse_pos;        
+            }
+        }
+    }
 }
 
 pub struct VDom {
@@ -778,7 +925,12 @@ impl DomEventLoop {
             
                 match delta {
                     MouseScrollDelta::LineDelta(x, y) => {                                             
-                        node.scroll -= Vec2::new(*x * tick_size, *y * tick_size);
+                        if self.keyboard_state.modifiers.shift {
+                            node.scroll.x -= y * tick_size;
+                        } else {
+                            node.scroll.y -= y * tick_size;
+                        }
+
                     },
                     MouseScrollDelta::PixelDelta(pos) => {
                         node.scroll += Vec2::new(pos.x as f32, pos.y as f32);
@@ -825,8 +977,10 @@ impl DomEventLoop {
         let mut elements = smallvec![];
         let mut cursor: (epaint::text::cursor::Cursor, NodeId) = (epaint::text::cursor::Cursor::default(), NodeId::default());
         let mut current_scroll_node = vdom.current_scroll_node;
-        let scroll_is_being_dragged = current_scroll_node.map(|s| s.is_scrollbar_button_grabbed).unwrap_or_default();
-        vdom.traverse_tree_with_parent_and_data(
+        let is_horizontal_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_horizontal_scrollbar_button_grabbed).unwrap_or_default();
+        let is_vertical_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_vertical_scrollbar_button_grabbed).unwrap_or_default();
+        let is_any_scrollbar_grabbed = is_horizontal_scroll_is_being_dragged || is_vertical_scroll_is_being_dragged;
+        vdom.traverse_tree_mut_with_parent_and_data(
             root_id,
             None,
             &Vec2::ZERO,
@@ -837,12 +991,33 @@ impl DomEventLoop {
 
             let layout = self.renderer.taffy.layout(node_id).unwrap();
             let style = self.renderer.taffy.style(node_id).unwrap();
-            let location = *parent_location_offset
-                + epaint::Vec2::new(layout.location.x, layout.location.y);
+
+            let parent_scroll_offset = parent
+                    .map(|p| {
+                        let scroll = p.scroll;
+                        let parent_layout = self.renderer.taffy.layout(p.styling.node.unwrap()).unwrap();
+
+                        Vec2::new(
+                            scroll
+                                .x
+                                .min(p.natural_content_size.width - parent_layout.size.width)
+                                .max(0.0),
+                            scroll
+                                .y
+                                .min(p.natural_content_size.height - parent_layout.size.height)
+                                .max(0.0),
+                        )
+                    })
+                    .unwrap_or_default();
+
+              let location = *parent_location_offset - parent_scroll_offset
+                    + epaint::Vec2::new(layout.location.x, layout.location.y);
+
             let node_rect = epaint::Rect {
                 min: location.to_pos2(),
                 max: Pos2 { x: location.x + layout.size.width, y: location.y + layout.size.height },
             };
+           
             
             if node_rect.contains(translated_mouse_pos)
             {
@@ -851,47 +1026,36 @@ impl DomEventLoop {
                     cursor = self.get_global_cursor(location, translated_mouse_pos, node, parent.unwrap());
                 }     
 
-                // here we figure out if the mouse is hovering over a scrollbar
-                if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !scroll_is_being_dragged {
-                    let scrollbar = self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width);
-                    let thumb = self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width);
+                if !is_any_scrollbar_grabbed && (style.overflow.x == Overflow::Scroll || style.overflow.y == Overflow::Scroll) {
+                    current_scroll_node = Some(ScrollNode::new(node.id));
+                }
 
-                    if scrollbar.contains(translated_mouse_pos)
-                    {
-                        if thumb.contains(translated_mouse_pos) {
-                            current_scroll_node = Some(ScrollNode {
-                                id: node.id,
-                                scrollbar,
-                                thumb,
-                                is_scrollbar_hovered: true,
-                                is_scrollbar_button_hovered: true,
-                                is_scrollbar_button_grabbed: false,
-                            });
-                        } else {
-                            current_scroll_node = Some(ScrollNode {
-                                id: node.id,
-                                scrollbar,
-                                thumb,
-                                is_scrollbar_hovered: true,
-                                is_scrollbar_button_grabbed: false,
-                                is_scrollbar_button_hovered: false,
-                            });
-                        }
-                    } else {
-                        current_scroll_node = Some(ScrollNode {
-                            id: node.id,
-                            scrollbar,
-                            thumb,
-                            is_scrollbar_hovered: false,
-                            is_scrollbar_button_grabbed: false,
-                            is_scrollbar_button_hovered: false,
-                        });
-                    }
+                let are_both_scrollbars_active = style.overflow.x == Overflow::Scroll && style.overflow.y == Overflow::Scroll;
+
+                // here we figure out if the mouse is hovering over a scrollbar
+                if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !is_any_scrollbar_grabbed {
+                    let scroll_node = current_scroll_node.as_mut().unwrap();
+                    scroll_node.set_vertical_scrollbar(
+                        self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, false, are_both_scrollbars_active),
+                        self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, false, are_both_scrollbars_active)
+                    );
+                }
+
+                if style.overflow.x == Overflow::Scroll && style.scrollbar_width != 0.0 && !is_any_scrollbar_grabbed {
+                    let scroll_node = current_scroll_node.as_mut().unwrap();
+                    scroll_node.set_horizontal_scrollbar(
+                        self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, true, are_both_scrollbars_active),
+                        self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, true, are_both_scrollbars_active)
+                    );
                 }
             }
 
             (true, location)
         });
+
+        if let Some(scroll_node) = current_scroll_node.as_mut() {
+            scroll_node.on_mouse_move(&translated_mouse_pos, vdom.nodes[scroll_node.id].natural_content_size, &mut vdom.nodes[scroll_node.id].scroll);
+        }
 
         self.cursor_state.cursor = cursor.0;
         vdom.current_scroll_node = current_scroll_node;
@@ -950,33 +1114,6 @@ impl DomEventLoop {
             }
         }
 
-
-        // handle scroll thumb dragging
-        if self.cursor_state.is_button_down {
-            let mut vdom = self.vdom.lock().unwrap();
-            if let Some(scroll_node) = vdom.current_scroll_node {
-                if scroll_node.is_scrollbar_button_grabbed {
-                    let drag_delta_y = self.cursor_state.last_pos.y - self.cursor_state.drag_start_pos.y;
-                    let drag_percentage = drag_delta_y / scroll_node.scrollbar.height();
-
-                    let node = &mut vdom.nodes[scroll_node.id];
-                    let content_height = node.natural_content_size.height;
-                    let viewport_height = scroll_node.scrollbar.height();
-
-                    let max_scrollable_distance = content_height - viewport_height;
-
-                    // Adjust the scroll position based on drag percentage
-                    node.scroll.y += drag_percentage * max_scrollable_distance;
-
-                    // Clamp the scroll position to ensure it doesn't go out of bounds
-                    node.scroll.y = node.scroll.y.clamp(0.0, max_scrollable_distance);
-
-                    // Update the drag_start_pos to the current position for the next move event
-                    self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
-                }
-            }
-        }
-
         true
     }
 
@@ -1007,39 +1144,20 @@ impl DomEventLoop {
 
         {
             let mut vdom = self.vdom.lock().unwrap();
-            if let Some(scroll_node) = vdom.current_scroll_node {
+            if let Some(mut scroll_node) = vdom.current_scroll_node {
                 match state {
                     winit::event::ElementState::Pressed => {
-                        if scroll_node.thumb.contains(self.cursor_state.last_pos) {
-                            vdom.current_scroll_node = Some(ScrollNode {
-                                is_scrollbar_button_grabbed: true,
-                                ..scroll_node
-                            });
-                        } else if scroll_node.scrollbar.contains(self.cursor_state.last_pos) {
-                            let click_y_relative = self.cursor_state.last_pos.y - scroll_node.scrollbar.min.y;
-                            let click_percentage = click_y_relative / scroll_node.scrollbar.height();
-            
-                            let node = &mut vdom.nodes[scroll_node.id];
-                            let content_height = node.natural_content_size.height;
-                            let viewport_height = scroll_node.scrollbar.height();
-            
-                            let thumb_height = (viewport_height / content_height) * scroll_node.scrollbar.height();
-                            let scroll_to_y_centered = click_percentage * (content_height - viewport_height) - (thumb_height / 2.0);
-                            let scroll_to_y_final = scroll_to_y_centered.clamp(0.0, content_height - viewport_height);
-                            node.scroll.y = scroll_to_y_final;
-                        }
+                        scroll_node.on_click(&self.cursor_state.last_pos, vdom.nodes[scroll_node.id].natural_content_size, &mut vdom.nodes[scroll_node.id].scroll);
                     }
                     winit::event::ElementState::Released => {
-                        vdom.current_scroll_node = Some(ScrollNode {
-                            is_scrollbar_button_grabbed: false,
-                            ..scroll_node
-                        });
+                        scroll_node.is_horizontal_scrollbar_button_grabbed = false;
+                        scroll_node.is_vertical_scrollbar_button_grabbed = false;
                     }
                 }
+
+                vdom.current_scroll_node = Some(scroll_node);
             };
-        }
-        
-        
+        }    
         
         let pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
             button,
