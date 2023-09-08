@@ -334,6 +334,7 @@ impl Renderer {
                                 style.scrollbar_width,
                                 layout,
                                 &location,
+                                false
                             );
                             shapes.push(container);
                             shapes.push(button);
@@ -377,18 +378,32 @@ impl Renderer {
         layout: &taffy::prelude::Layout,
         location: &Vec2,
         bar_width: f32,
+        horizontal: bool,
     ) -> Rect {
         let styling = &node.styling;
 
-        epaint::Rect {
-            min: epaint::Pos2 {
-                x: location.x + layout.size.width - bar_width,
-                y: location.y + styling.border.width / 2.0,
-            },
-            max: epaint::Pos2 {
-                x: location.x + layout.size.width,
-                y: location.y + layout.size.height,
-            },
+        if horizontal {
+            epaint::Rect {
+                min: epaint::Pos2 {
+                    x: location.x + styling.border.width / 2.0,
+                    y: location.y + layout.size.height - bar_width,
+                },
+                max: epaint::Pos2 {
+                    x: location.x + layout.size.width - styling.border.width / 2.0,
+                    y: location.y + layout.size.height,
+                },
+            }
+        } else {
+            epaint::Rect {
+                min: epaint::Pos2 {
+                    x: location.x + layout.size.width - bar_width,
+                    y: location.y + styling.border.width / 2.0,
+                },
+                max: epaint::Pos2 {
+                    x: location.x + layout.size.width,
+                    y: location.y + layout.size.height - styling.border.width / 2.0,
+                },
+            }
         }
     }
 
@@ -398,28 +413,52 @@ impl Renderer {
         layout: &taffy::prelude::Layout,
         location: &Vec2,
         bar_width: f32,
+        horizontal: bool,
     ) -> Rect {
         let styling = &node.styling;
 
-        let button_width = bar_width * 0.50; // 90% of bar_width
+        let button_width = bar_width * 0.50; // 50% of bar_width
 
-        let thumb_height = (layout.size.height / node.natural_content_size.height)
-            * (layout.size.height - styling.border.width);
+        if horizontal {
+            let thumb_width = (layout.size.width / node.natural_content_size.width)
+                * (layout.size.width - styling.border.width);
+            let thumb_position_x = (node.scroll.x
+                / (node.natural_content_size.width - layout.size.width))
+                * (layout.size.width - styling.border.width - thumb_width);
 
-        let thumb_position_y = (node.scroll.y
-            / (node.natural_content_size.height - layout.size.height))
-            * (layout.size.height - styling.border.width - thumb_height);
+            epaint::Rect {
+                min: epaint::Pos2 {
+                    x: location.x + styling.border.width / 2.0 + thumb_position_x,
+                    y: location.y + layout.size.height - bar_width
+                        + (bar_width - button_width) / 2.0,
+                },
+                max: epaint::Pos2 {
+                    x: location.x + styling.border.width / 2.0 + thumb_position_x + thumb_width,
+                    y: location.y + layout.size.height,
+                },
+            }
+        } else {
+            let thumb_height = (layout.size.height / node.natural_content_size.height)
+                * (layout.size.height - styling.border.width);
 
-        epaint::Rect {
-            min: epaint::Pos2 {
-                x: location.x + layout.size.width - bar_width + (bar_width - button_width) / 2.0,
-                y: location.y + styling.border.width / 2.0 + thumb_position_y,
-            },
-            max: epaint::Pos2 {
-                x: location.x + layout.size.width - bar_width + (bar_width + button_width) / 2.0,
-                y: location.y + styling.border.width / 2.0 + thumb_position_y + thumb_height,
-            },
+            let thumb_position_y = (node.scroll.y
+                / (node.natural_content_size.height - layout.size.height))
+                * (layout.size.height - styling.border.width - thumb_height);
+
+            epaint::Rect {
+                min: epaint::Pos2 {
+                    x: location.x + layout.size.width - bar_width
+                        + (bar_width - button_width) / 2.0,
+                    y: location.y + styling.border.width / 2.0 + thumb_position_y,
+                },
+                max: epaint::Pos2 {
+                    x: location.x + layout.size.width - bar_width
+                        + (bar_width + button_width) / 2.0,
+                    y: location.y + styling.border.width / 2.0 + thumb_position_y + thumb_height,
+                },
+            }
         }
+
     }
 
     pub fn get_scrollbar_shape(
@@ -428,20 +467,12 @@ impl Renderer {
         bar_width: f32,
         layout: &taffy::prelude::Layout,
         location: &Vec2,
+        horizontal: bool,
     ) -> (ClippedShape, ClippedShape) {
         let styling = &node.styling;
 
         let container_shape = epaint::Shape::Rect(epaint::RectShape {
-            rect: epaint::Rect {
-                min: epaint::Pos2 {
-                    x: location.x + layout.size.width - bar_width,
-                    y: location.y + styling.border.width / 2.0,
-                },
-                max: epaint::Pos2 {
-                    x: location.x + layout.size.width,
-                    y: location.y + layout.size.height,
-                },
-            },
+            rect: self.get_scrollbar_rect(node, layout, location, bar_width, horizontal),
             rounding: epaint::Rounding::ZERO,
             fill: Color32::BLACK,
             stroke: epaint::Stroke::NONE,
@@ -450,7 +481,7 @@ impl Renderer {
         });
 
         let button_shape = epaint::Shape::Rect(epaint::RectShape {
-            rect: self.get_scroll_thumb_rect(node, layout, location, bar_width),
+            rect: self.get_scroll_thumb_rect(node, layout, location, bar_width, horizontal),
             rounding: epaint::Rounding {
                 ne: 100.0,
                 nw: 100.0,
