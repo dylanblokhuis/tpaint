@@ -185,18 +185,19 @@ impl Renderer {
             let mut styles_to_reset = Vec::new();
             let root_taffy_id = vdom.nodes.get(root_id).unwrap().styling.node.unwrap();
             vdom.traverse_tree_mut(root_id, &mut |node| {
-                let old_style = taffy.style(node.styling.node.unwrap()).unwrap().clone();
-                if old_style.overflow.y != Overflow::Scroll {
+                let old_layout = *taffy.layout(node.styling.node.unwrap()).unwrap();
+                let mut old_style = taffy.style(node.styling.node.unwrap()).unwrap().clone();
+                if old_style.overflow.y != Overflow::Scroll
+                    && old_style.overflow.x != Overflow::Scroll
+                {
                     return true;
                 }
-
                 let mut style = old_style.clone();
+                style.overflow.x = Overflow::Visible;
                 style.overflow.y = Overflow::Visible;
-                if style.flex_direction == taffy::style::FlexDirection::Column {
-                    style.size.width = Dimension::AUTO;
-                } else {
-                    style.size.height = Dimension::AUTO;
-                }
+                style.size.width = Dimension::AUTO;
+                style.size.height = Dimension::AUTO;
+
                 taffy.set_style(node.styling.node.unwrap(), style).unwrap();
                 taffy
                     .compute_layout(root_taffy_id, available_space)
@@ -207,6 +208,12 @@ impl Renderer {
                     width: natural_layout.size.width,
                     height: natural_layout.size.height,
                 };
+
+                if old_layout.size.height > natural_layout.size.height
+                    && old_layout.size.width > natural_layout.size.width
+                {
+                    old_style.scrollbar_width = 0.0;
+                }
 
                 styles_to_reset.push((node.styling.node.unwrap(), old_style));
 
@@ -238,8 +245,6 @@ impl Renderer {
                 let taffy_id = node.styling.node.unwrap();
                 let layout = self.taffy.layout(taffy_id).unwrap();
 
-                let max_scroll = parent.map(|p| p.natural_content_size).unwrap_or_default();
-
                 let parent_scroll_offset = parent
                     .map(|p| {
                         let scroll = p.scroll;
@@ -248,11 +253,11 @@ impl Renderer {
                         Vec2::new(
                             scroll
                                 .x
-                                .min(max_scroll.width - parent_layout.size.width)
+                                .min(p.natural_content_size.width - parent_layout.size.width)
                                 .max(0.0),
                             scroll
                                 .y
-                                .min(max_scroll.height - parent_layout.size.height)
+                                .min(p.natural_content_size.height - parent_layout.size.height)
                                 .max(0.0),
                         )
                     })
@@ -261,6 +266,7 @@ impl Renderer {
                 let location = *parent_location_offset - parent_scroll_offset
                     + epaint::Vec2::new(layout.location.x, layout.location.y);
 
+                let style = self.taffy.style(taffy_id).unwrap();
                 let node_clip = {
                     epaint::Rect {
                         min: epaint::Pos2 {
@@ -268,13 +274,23 @@ impl Renderer {
                             y: location.y,
                         },
                         max: epaint::Pos2 {
-                            x: location.x + layout.size.width,
-                            y: location.y + layout.size.height,
+                            x: if style.overflow.y == Overflow::Scroll
+                                && style.scrollbar_width != 0.0
+                            {
+                                location.x + layout.size.width - style.scrollbar_width
+                            } else {
+                                location.x + layout.size.width
+                            },
+                            y: if style.overflow.x == Overflow::Scroll
+                                && style.scrollbar_width != 0.0
+                            {
+                                location.y + layout.size.height - style.scrollbar_width
+                            } else {
+                                location.y + layout.size.height
+                            },
                         },
                     }
                 };
-
-                let style = self.taffy.style(taffy_id).unwrap();
 
                 let mut clip = node_clip;
                 match style.overflow.y {
@@ -328,16 +344,68 @@ impl Renderer {
                     _ => {
                         shapes.push(self.get_rect_shape(node, clip, layout, &location));
                         let style = self.taffy.style(taffy_id).unwrap();
+
+                        let are_both_scrollbars_visible = style.overflow.x == Overflow::Scroll
+                            && style.overflow.y == Overflow::Scroll;
+
                         if style.scrollbar_width > 0.0 && style.overflow.y == Overflow::Scroll {
                             let (container, button) = self.get_scrollbar_shape(
                                 node,
                                 style.scrollbar_width,
                                 layout,
                                 &location,
-                                false
+                                false,
+                                are_both_scrollbars_visible,
+                                vdom.current_scroll_node
+                                    .map(|scroll| {
+                                        scroll.is_vertical_scrollbar_hovered && scroll.id == node.id
+                                    })
+                                    .unwrap_or(false),
+                                vdom.current_scroll_node
+                                    .map(|scroll| {
+                                        (scroll.is_vertical_scrollbar_button_hovered
+                                            || scroll.is_vertical_scrollbar_button_grabbed)
+                                            && scroll.id == node.id
+                                    })
+                                    .unwrap_or(false),
                             );
                             shapes.push(container);
                             shapes.push(button);
+                        }
+
+                        if style.scrollbar_width > 0.0 && style.overflow.x == Overflow::Scroll {
+                            let (container, button) = self.get_scrollbar_shape(
+                                node,
+                                style.scrollbar_width,
+                                layout,
+                                &location,
+                                true,
+                                are_both_scrollbars_visible,
+                                vdom.current_scroll_node
+                                    .map(|scroll| {
+                                        scroll.is_horizontal_scrollbar_hovered
+                                            && scroll.id == node.id
+                                    })
+                                    .unwrap_or(false),
+                                vdom.current_scroll_node
+                                    .map(|scroll| {
+                                        (scroll.is_horizontal_scrollbar_hovered
+                                            || scroll.is_horizontal_scrollbar_button_grabbed)
+                                            && scroll.id == node.id
+                                    })
+                                    .unwrap_or(false),
+                            );
+                            shapes.push(container);
+                            shapes.push(button);
+                        }
+
+                        if are_both_scrollbars_visible {
+                            shapes.push(self.get_scrollbar_bottom_right_prop(
+                                node,
+                                &shapes[shapes.len() - 4],
+                                &shapes[shapes.len() - 2],
+                                style.scrollbar_width,
+                            ))
                         }
                     }
                 }
@@ -379,6 +447,7 @@ impl Renderer {
         location: &Vec2,
         bar_width: f32,
         horizontal: bool,
+        are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
 
@@ -389,7 +458,13 @@ impl Renderer {
                     y: location.y + layout.size.height - bar_width,
                 },
                 max: epaint::Pos2 {
-                    x: location.x + layout.size.width - styling.border.width / 2.0,
+                    x: location.x + layout.size.width
+                        - styling.border.width / 2.0
+                        - if are_both_scrollbars_visible {
+                            bar_width
+                        } else {
+                            0.0
+                        }, // <- Adjust here
                     y: location.y + layout.size.height,
                 },
             }
@@ -401,7 +476,13 @@ impl Renderer {
                 },
                 max: epaint::Pos2 {
                     x: location.x + layout.size.width,
-                    y: location.y + layout.size.height - styling.border.width / 2.0,
+                    y: location.y + layout.size.height
+                        - styling.border.width / 2.0
+                        - if are_both_scrollbars_visible {
+                            bar_width
+                        } else {
+                            0.0
+                        }, // <- Adjust here
                 },
             }
         }
@@ -414,6 +495,7 @@ impl Renderer {
         location: &Vec2,
         bar_width: f32,
         horizontal: bool,
+        are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
 
@@ -421,10 +503,25 @@ impl Renderer {
 
         if horizontal {
             let thumb_width = (layout.size.width / node.natural_content_size.width)
-                * (layout.size.width - styling.border.width);
+                * (layout.size.width
+                    - styling.border.width
+                    - if are_both_scrollbars_visible {
+                        bar_width
+                    } else {
+                        0.0
+                    });
+
+            let thumb_max_x = layout.size.width
+                - styling.border.width
+                - thumb_width
+                - if are_both_scrollbars_visible {
+                    bar_width
+                } else {
+                    0.0
+                };
             let thumb_position_x = (node.scroll.x
                 / (node.natural_content_size.width - layout.size.width))
-                * (layout.size.width - styling.border.width - thumb_width);
+                * thumb_max_x;
 
             epaint::Rect {
                 min: epaint::Pos2 {
@@ -434,16 +531,31 @@ impl Renderer {
                 },
                 max: epaint::Pos2 {
                     x: location.x + styling.border.width / 2.0 + thumb_position_x + thumb_width,
-                    y: location.y + layout.size.height,
+                    y: location.y + layout.size.height - bar_width
+                        + (bar_width + button_width) / 2.0,
                 },
             }
         } else {
             let thumb_height = (layout.size.height / node.natural_content_size.height)
-                * (layout.size.height - styling.border.width);
+                * (layout.size.height
+                    - styling.border.width
+                    - if are_both_scrollbars_visible {
+                        bar_width
+                    } else {
+                        0.0
+                    });
 
+            let thumb_max_y = layout.size.height
+                - styling.border.width
+                - thumb_height
+                - if are_both_scrollbars_visible {
+                    bar_width
+                } else {
+                    0.0
+                };
             let thumb_position_y = (node.scroll.y
                 / (node.natural_content_size.height - layout.size.height))
-                * (layout.size.height - styling.border.width - thumb_height);
+                * thumb_max_y;
 
             epaint::Rect {
                 min: epaint::Pos2 {
@@ -458,7 +570,6 @@ impl Renderer {
                 },
             }
         }
-
     }
 
     pub fn get_scrollbar_shape(
@@ -468,27 +579,52 @@ impl Renderer {
         layout: &taffy::prelude::Layout,
         location: &Vec2,
         horizontal: bool,
+        are_both_scrollbars_visible: bool,
+        hovered: bool,
+        thumb_hovered: bool,
     ) -> (ClippedShape, ClippedShape) {
         let styling = &node.styling;
 
         let container_shape = epaint::Shape::Rect(epaint::RectShape {
-            rect: self.get_scrollbar_rect(node, layout, location, bar_width, horizontal),
+            rect: self.get_scrollbar_rect(
+                node,
+                layout,
+                location,
+                bar_width,
+                horizontal,
+                are_both_scrollbars_visible,
+            ),
             rounding: epaint::Rounding::ZERO,
-            fill: Color32::BLACK,
+            fill: if hovered {
+                styling.scrollbar.background_color_hovered
+            } else {
+                styling.scrollbar.background_color
+            },
             stroke: epaint::Stroke::NONE,
             fill_texture_id: TextureId::default(),
             uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
         });
 
         let button_shape = epaint::Shape::Rect(epaint::RectShape {
-            rect: self.get_scroll_thumb_rect(node, layout, location, bar_width, horizontal),
+            rect: self.get_scroll_thumb_rect(
+                node,
+                layout,
+                location,
+                bar_width,
+                horizontal,
+                are_both_scrollbars_visible,
+            ),
             rounding: epaint::Rounding {
                 ne: 100.0,
                 nw: 100.0,
                 se: 100.0,
                 sw: 100.0,
             },
-            fill: Color32::GRAY,
+            fill: if thumb_hovered {
+                styling.scrollbar.thumb_color_hovered
+            } else {
+                styling.scrollbar.thumb_color
+            },
             stroke: epaint::Stroke::NONE,
             fill_texture_id: TextureId::default(),
             uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
@@ -504,6 +640,40 @@ impl Renderer {
                 shape: button_shape,
             },
         )
+    }
+
+    pub fn get_scrollbar_bottom_right_prop(
+        &self,
+        node: &Node,
+        vertical_container: &ClippedShape,
+        horizontal_container: &ClippedShape,
+        bar_width: f32,
+    ) -> ClippedShape {
+        let vertical_container = vertical_container.shape.visual_bounding_rect();
+        let horizontal_container = horizontal_container.shape.visual_bounding_rect();
+
+        let shape = epaint::Shape::Rect(epaint::RectShape {
+            rect: epaint::Rect {
+                min: epaint::Pos2 {
+                    x: horizontal_container.max.x,
+                    y: vertical_container.max.y,
+                },
+                max: epaint::Pos2 {
+                    x: horizontal_container.max.x + bar_width,
+                    y: vertical_container.max.y + bar_width,
+                },
+            },
+            rounding: epaint::Rounding::ZERO,
+            fill: node.styling.scrollbar.background_color,
+            stroke: epaint::Stroke::NONE,
+            fill_texture_id: TextureId::default(),
+            uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+        });
+
+        ClippedShape {
+            clip_rect: shape.visual_bounding_rect(),
+            shape,
+        }
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_text_shape")]

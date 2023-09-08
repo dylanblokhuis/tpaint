@@ -49,13 +49,33 @@ impl Default for TextStyling {
     }
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub struct ScrollbarStyling {
+    pub background_color: Color32,
+    pub background_color_hovered: Color32,
+    pub thumb_color: Color32,
+    pub thumb_color_hovered: Color32,
+}
+
+impl Default for ScrollbarStyling {
+    fn default() -> Self {
+        Self {
+            background_color: Color32::BLACK,
+            background_color_hovered: Color32::BLACK,
+            thumb_color: Color32::DARK_GRAY,
+            thumb_color_hovered: Color32::GRAY,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Tailwind {
     pub node: Option<taffy::tree::NodeId>,
+    pub texture_id: Option<epaint::TextureId>,
     pub background_color: Color32,
     pub border: Border,
     pub text: TextStyling,
-    pub texture_id: Option<epaint::TextureId>,
+    pub scrollbar: ScrollbarStyling,
 }
 
 pub struct StyleState {
@@ -248,6 +268,17 @@ impl Tailwind {
             style.display = Display::Flex;
             style.flex_direction = FlexDirection::Row;
         }
+
+        // if class == "grid" {
+        //     style.display = Display::Grid;
+        // }
+
+        // if let Some(class) = class.strip_prefix("grid-cols-") {
+        //     style.grid_template_columns = Vec::new();
+        //     for _ in 0..class.parse::<usize>().unwrap_or(0) {
+        //         style.grid_template_columns.push(fr(1.0));
+        //     }
+        // }
 
         if let Some(class) = class.strip_prefix("flex-") {
             match class {
@@ -552,6 +583,18 @@ impl Tailwind {
                 }
 
                 _ => {}
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("scrollbar-bg-") {
+            if let Some(color) = handle_color(class, colors) {
+                self.scrollbar.background_color = color;
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("scrollbar-thumb-bg-") {
+            if let Some(color) = handle_color(class, colors) {
+                self.scrollbar.thumb_color = color;
             }
         }
     }
