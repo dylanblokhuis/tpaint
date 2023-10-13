@@ -106,20 +106,6 @@ fn create_index_buffer(ctx: &RenderContext, capacity: u64) -> ResourceHandle<Buf
 
 impl Renderer {
     pub fn new(ctx: &RenderContext) -> Self {
-        let uniform_buffer = ctx.create_buffer_with_data(
-            &BufferDescriptor {
-                debug_name: "tpaint_uniform_buffer",
-                location: MemoryLocation::CpuToGpu,
-                usage: BufferUsageFlags::UNIFORM_BUFFER | BufferUsageFlags::TRANSFER_DST,
-                ..Default::default()
-            },
-            bytemuck::cast_slice(&[UniformBuffer {
-                screen_size_in_points: [0.0, 0.0],
-                _padding: [0, 0],
-            }]),
-            0,
-        );
-
         let swapchain = ctx.get_swapchain();
 
         let graphics_pipeline = ctx.create_graphics_pipeline(
@@ -459,56 +445,126 @@ impl Renderer {
         }
     }
 
-    pub unsafe fn render(
+    pub fn render(
         &self,
         ctx: &RenderContext,
         paint_jobs: &[epaint::ClippedPrimitive],
         screen_descriptor: &ScreenDescriptor,
         command_buffer: vk::CommandBuffer,
     ) {
-        let mut pipeline = ctx.graphics_pipelines.get_mut(&self.pipeline).unwrap();
-        let pixels_per_point = screen_descriptor.pixels_per_point;
-        let size_in_pixels = screen_descriptor.size_in_pixels;
+        unsafe {
+            let mut pipeline = ctx.graphics_pipelines.get_mut(&self.pipeline).unwrap();
+            let pixels_per_point = screen_descriptor.pixels_per_point;
+            let size_in_pixels = screen_descriptor.size_in_pixels;
 
-        // Whether or not we need to reset the render pass because a paint callback has just
-        // run.
+            // Whether or not we need to reset the render pass because a paint callback has just
+            // run.
 
-        let mut index_buffer_slices = self.index_buffer.slices.iter();
-        let mut vertex_buffer_slices = self.vertex_buffer.slices.iter();
+            let mut index_buffer_slices = self.index_buffer.slices.iter();
+            let mut vertex_buffer_slices = self.vertex_buffer.slices.iter();
 
-        ctx.device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline,
-        );
-        pipeline.bind_descriptor_sets(ctx, command_buffer);
-        ctx.device.cmd_set_viewport(
-            command_buffer,
-            0,
-            &[vk::Viewport {
-                x: 0.0,
-                y: 0.0,
-                width: size_in_pixels[0] as f32,
-                height: size_in_pixels[1] as f32,
-                min_depth: 0.0,
-                max_depth: 1.0,
-            }],
-        );
-        for epaint::ClippedPrimitive {
-            clip_rect,
-            primitive,
-        } in paint_jobs
-        {
-            let rect = ScissorRect::new(clip_rect, pixels_per_point, size_in_pixels);
+            ctx.device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                pipeline.pipeline,
+            );
+            pipeline.bind_descriptor_sets(ctx, command_buffer);
+            ctx.device.cmd_set_viewport(
+                command_buffer,
+                0,
+                &[vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: size_in_pixels[0] as f32,
+                    height: size_in_pixels[1] as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                }],
+            );
+            for epaint::ClippedPrimitive {
+                clip_rect,
+                primitive,
+            } in paint_jobs
+            {
+                let rect = ScissorRect::new(clip_rect, pixels_per_point, size_in_pixels);
 
-            if rect.width == 0 || rect.height == 0 {
-                // Skip rendering zero-sized clip areas.
-                if let Primitive::Mesh(_) = primitive {
-                    // If this is a mesh, we need to advance the index and vertex buffer iterators:
-                    index_buffer_slices.next().unwrap();
-                    vertex_buffer_slices.next().unwrap();
+                if rect.width == 0 || rect.height == 0 {
+                    // Skip rendering zero-sized clip areas.
+                    if let Primitive::Mesh(_) = primitive {
+                        // If this is a mesh, we need to advance the index and vertex buffer iterators:
+                        index_buffer_slices.next().unwrap();
+                        vertex_buffer_slices.next().unwrap();
+                    }
+                    continue;
                 }
-                continue;
+
+                ctx.device.cmd_set_scissor(
+                    command_buffer,
+                    0,
+                    &[vk::Rect2D {
+                        extent: vk::Extent2D {
+                            width: rect.width,
+                            height: rect.height,
+                        },
+                        offset: vk::Offset2D {
+                            x: rect.x as i32,
+                            y: rect.y as i32,
+                        },
+                    }],
+                );
+
+                match primitive {
+                    Primitive::Mesh(mesh) => {
+                        let index_buffer_slice = index_buffer_slices.next().unwrap();
+                        let vertex_buffer_slice = vertex_buffer_slices.next().unwrap();
+                        if let Some(texture_index) = self.textures_to_index.get(&mesh.texture_id) {
+                            let index_buffer =
+                                ctx.buffer_manager.get(&self.index_buffer.buffer).unwrap();
+                            let vertex_buffer =
+                                ctx.buffer_manager.get(&self.vertex_buffer.buffer).unwrap();
+
+                            ctx.device.cmd_push_constants(
+                                command_buffer,
+                                pipeline.layout,
+                                vk::ShaderStageFlags::ALL_GRAPHICS,
+                                0,
+                                bytemuck::bytes_of(&PushConstants {
+                                    texture_index: *texture_index as u32,
+                                    screen_size: screen_descriptor.screen_size_in_points(),
+                                    _pad: Default::default(),
+                                }),
+                            );
+
+                            ctx.device.cmd_bind_index_buffer(
+                                command_buffer,
+                                index_buffer.buffer,
+                                index_buffer_slice.start as _,
+                                vk::IndexType::UINT32,
+                            );
+
+                            ctx.device.cmd_bind_vertex_buffers(
+                                command_buffer,
+                                0,
+                                &[vertex_buffer.buffer],
+                                &[vertex_buffer_slice.start as _],
+                            );
+
+                            ctx.device.cmd_draw_indexed(
+                                command_buffer,
+                                mesh.indices.len() as u32,
+                                1,
+                                0,
+                                0,
+                                0,
+                            );
+                        } else {
+                            log::warn!("Missing texture: {:?}", mesh.texture_id);
+                        }
+                    }
+                    Primitive::Callback(_) => {
+                        unimplemented!();
+                    }
+                }
             }
 
             ctx.device.cmd_set_scissor(
@@ -516,81 +572,13 @@ impl Renderer {
                 0,
                 &[vk::Rect2D {
                     extent: vk::Extent2D {
-                        width: rect.width,
-                        height: rect.height,
+                        width: size_in_pixels[0],
+                        height: size_in_pixels[1],
                     },
-                    offset: vk::Offset2D {
-                        x: rect.x as i32,
-                        y: rect.y as i32,
-                    },
+                    offset: vk::Offset2D { x: 0, y: 0 },
                 }],
             );
-
-            match primitive {
-                Primitive::Mesh(mesh) => {
-                    let index_buffer_slice = index_buffer_slices.next().unwrap();
-                    let vertex_buffer_slice = vertex_buffer_slices.next().unwrap();
-                    if let Some(texture_index) = self.textures_to_index.get(&mesh.texture_id) {
-                        let index_buffer =
-                            ctx.buffer_manager.get(&self.index_buffer.buffer).unwrap();
-                        let vertex_buffer =
-                            ctx.buffer_manager.get(&self.vertex_buffer.buffer).unwrap();
-
-                        ctx.device.cmd_push_constants(
-                            command_buffer,
-                            pipeline.layout,
-                            vk::ShaderStageFlags::ALL_GRAPHICS,
-                            0,
-                            bytemuck::bytes_of(&PushConstants {
-                                texture_index: *texture_index as u32,
-                                screen_size: screen_descriptor.screen_size_in_points(),
-                                _pad: Default::default(),
-                            }),
-                        );
-
-                        ctx.device.cmd_bind_index_buffer(
-                            command_buffer,
-                            index_buffer.buffer,
-                            index_buffer_slice.start as _,
-                            vk::IndexType::UINT32,
-                        );
-
-                        ctx.device.cmd_bind_vertex_buffers(
-                            command_buffer,
-                            0,
-                            &[vertex_buffer.buffer],
-                            &[vertex_buffer_slice.start as _],
-                        );
-
-                        ctx.device.cmd_draw_indexed(
-                            command_buffer,
-                            mesh.indices.len() as u32,
-                            1,
-                            0,
-                            0,
-                            0,
-                        );
-                    } else {
-                        log::warn!("Missing texture: {:?}", mesh.texture_id);
-                    }
-                }
-                Primitive::Callback(_) => {
-                    unimplemented!();
-                }
-            }
         }
-
-        ctx.device.cmd_set_scissor(
-            command_buffer,
-            0,
-            &[vk::Rect2D {
-                extent: vk::Extent2D {
-                    width: size_in_pixels[0],
-                    height: size_in_pixels[1],
-                },
-                offset: vk::Offset2D { x: 0, y: 0 },
-            }],
-        );
     }
 }
 
