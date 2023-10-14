@@ -21,14 +21,6 @@ use beuk::{
 use slab::Slab;
 use tpaint::epaint::{self, emath::NumExt, ImageDelta, Primitive, TextureId, Vertex};
 
-// #[repr(C, align(16))]
-// #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-// struct Vertex {
-//     position: [f32; 2],
-//     uv: [f32; 2],
-//     color: [f32; 4],
-// }
-
 /// Uniform buffer used when rendering.
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C, align(16))]
@@ -105,7 +97,7 @@ fn create_index_buffer(ctx: &RenderContext, capacity: u64) -> ResourceHandle<Buf
 }
 
 impl Renderer {
-    pub fn new(ctx: &RenderContext) -> Self {
+    pub fn new(ctx: &RenderContext, color_format: vk::Format, depth_format: vk::Format) -> Self {
         let swapchain = ctx.get_swapchain();
 
         let graphics_pipeline = ctx.create_graphics_pipeline(
@@ -143,8 +135,8 @@ impl Renderer {
                     }],
                 },
                 fragment: FragmentState {
-                    color_attachment_formats: smallvec![swapchain.surface_format.format],
-                    depth_attachment_format: swapchain.depth_image_format,
+                    color_attachment_formats: smallvec![color_format],
+                    depth_attachment_format: depth_format,
                     shader: ctx.create_shader(ShaderDescriptor {
                         label: "tpaint_fragment",
                         kind: beuk::shaders::ShaderKind::Fragment,

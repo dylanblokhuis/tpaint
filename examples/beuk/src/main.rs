@@ -41,7 +41,13 @@ fn main() {
         present_mode: vk::PresentModeKHR::default(),
     }));
 
-    let mut renderer = Renderer::new(&ctx);
+    let swapchain = ctx.get_swapchain();
+    let mut renderer = Renderer::new(
+        &ctx,
+        swapchain.surface_format.format,
+        swapchain.depth_image_format,
+    );
+    drop(swapchain);
 
     // let mut ctx = RenderContext::new(&device, config.format, None, 1, size);
     let mut app = DomEventLoop::spawn(
