@@ -4,6 +4,7 @@ members = [
     "crates/tpaint",
     "crates/tpaint_glow",
     "crates/tpaint_wgpu",
+    "crates/tpaint_beuk",
 
     "examples/*",
 ]

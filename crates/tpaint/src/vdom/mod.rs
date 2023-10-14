@@ -438,13 +438,12 @@ impl VDom {
     }
 
     fn load_path(&self, path: &[u8]) -> NodeId {
-        let mut current_id = *self.stack.last().unwrap();
-        let current = self.nodes.get(current_id).unwrap();
+        let mut current = self.nodes.get(*self.stack.last().unwrap()).unwrap();
         for index in path {
             let new_id = current.children[*index as usize];
-            current_id = new_id
+            current = self.nodes.get(new_id).unwrap();
         }
-        current_id
+        current.id
     }
 
     #[tracing::instrument(skip_all, name = "VDom::get_tag_or_attr_key")]
