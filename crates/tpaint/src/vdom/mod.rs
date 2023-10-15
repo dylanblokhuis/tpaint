@@ -8,7 +8,7 @@ use std::{
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
-    prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom},
+    prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom, ScopeId},
 };
 use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2, Rect};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -34,6 +34,8 @@ pub struct Node {
     pub styling: Tailwind,
     pub scroll: Vec2,
     pub natural_content_size: Size<f32>,
+    /// absolute positioned rect computed by the layout engine
+    pub computed_rect: Rect
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -217,7 +219,8 @@ impl VDom {
             children: smallvec![],
             styling: Tailwind::default(),
             scroll: Vec2::ZERO,
-            natural_content_size: Size::ZERO
+            natural_content_size: Size::ZERO,
+            computed_rect: Rect::ZERO,
         });
 
         let mut element_id_mapping = FxHashMap::default();
@@ -486,6 +489,7 @@ impl VDom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     natural_content_size: Size::ZERO,
+                    computed_rect: Rect::ZERO,
                 };
                 let parent = self.nodes.insert_with_key(|id| {
                     node.id = id;
@@ -512,6 +516,7 @@ impl VDom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     natural_content_size: Size::ZERO,
+                    computed_rect: Rect::ZERO,
                 }})
             }
 
@@ -528,6 +533,7 @@ impl VDom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     natural_content_size: Size::ZERO,
+                    computed_rect: Rect::ZERO,
                 }})
             }
 
@@ -543,6 +549,7 @@ impl VDom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     natural_content_size: Size::ZERO,
+                    computed_rect: Rect::ZERO,
                 }})
             },
         }
@@ -561,6 +568,7 @@ impl VDom {
             styling: node.styling.clone(),
             scroll: Vec2::ZERO,
             natural_content_size: Size::ZERO,
+            computed_rect: Rect::ZERO,
         };
         let new_node_id = self.nodes.insert_with_key(|id| {
             new_node.id = id;
@@ -767,7 +775,7 @@ pub struct CursorState {
     /// the already translated cursor position
     last_pos: Pos2,
     cursor: epaint::text::cursor::Cursor,
-    drag_start_pos: Pos2,
+    drag_start: (SmallVec<[NodeId; MAX_CHILDREN]>, Pos2),
     is_button_down: bool,
 }
 
@@ -779,6 +787,7 @@ pub struct KeyboardState {
 pub struct DomEventLoop {
     pub vdom: Arc<Mutex<VDom>>,
     dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
+    pub update_scope_sender: tokio::sync::mpsc::UnboundedSender<ScopeId>,
 
     pub renderer: Renderer,
     pub cursor_state: CursorState,
@@ -786,10 +795,10 @@ pub struct DomEventLoop {
 }
 
 // a node can have a max of 1024 children
-const MAX_CHILDREN: usize = 1024;
+pub const MAX_CHILDREN: usize = 1024;
 
 impl DomEventLoop {
-    pub fn spawn<E: Debug + Send + Sync + Clone>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E) -> DomEventLoop {
+    pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
         let render_vdom = Arc::new(Mutex::new(VDom::new()));
 
@@ -797,6 +806,8 @@ impl DomEventLoop {
         let (hot_reload_tx, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<dioxus_hot_reload::HotReloadMsg>();
         #[cfg(not(all(feature = "hot-reload", debug_assertions)))]
         let (_, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+
+        let (update_scope_sender, mut update_scope_receiver) = tokio::sync::mpsc::unbounded_channel::<ScopeId>();
         
         #[cfg(all(feature = "hot-reload", debug_assertions))]
         dioxus_hot_reload::connect(move |msg| {
@@ -806,7 +817,7 @@ impl DomEventLoop {
         std::thread::spawn({
             let render_vdom = render_vdom.clone();
             move || {
-                let mut vdom = VirtualDom::new(app);
+                let mut vdom = VirtualDom::new(app).with_root_context(root_context);
                 let mutations = vdom.rebuild();
                 dbg!(&mutations);
                 render_vdom.lock().unwrap().apply_mutations(mutations);
@@ -836,6 +847,9 @@ impl DomEventLoop {
                                 let DomEvent { name, data, element_id, bubbles } = event;
                                 vdom.handle_event(&name, data.deref().clone().into_any(), element_id, bubbles);
                             }
+                            Some(scope_id) = update_scope_receiver.recv() => {
+                                vdom.get_scope(scope_id).unwrap().needs_update();
+                            }
                         }
 
                         let mutations = vdom.render_immediate();
@@ -850,6 +864,7 @@ impl DomEventLoop {
         DomEventLoop {
             vdom: render_vdom,
             dom_event_sender,
+            update_scope_sender,
             renderer: Renderer::new(window_size, pixels_per_point, FontDefinitions::default()),
             cursor_state: CursorState::default(),
             keyboard_state: KeyboardState::default(),
@@ -979,51 +994,26 @@ impl DomEventLoop {
         let is_horizontal_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_horizontal_scrollbar_button_grabbed).unwrap_or_default();
         let is_vertical_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_vertical_scrollbar_button_grabbed).unwrap_or_default();
         let is_any_scrollbar_grabbed = is_horizontal_scroll_is_being_dragged || is_vertical_scroll_is_being_dragged;
-        vdom.traverse_tree_mut_with_parent_and_data(
+        vdom.traverse_tree_mut_with_parent(
             root_id,
             None,
-            &Vec2::ZERO,
-            &mut |node, parent, parent_location_offset| {
+            &mut |node, parent| {
             let Some(node_id) = node.styling.node else {
-                return (false, *parent_location_offset);
+                return false;
             };
 
             let layout = self.renderer.taffy.layout(node_id).unwrap();
             let style = self.renderer.taffy.style(node_id).unwrap();
 
-            let parent_scroll_offset = parent
-                    .map(|p| {
-                        let scroll = p.scroll;
-                        let parent_layout = self.renderer.taffy.layout(p.styling.node.unwrap()).unwrap();
-
-                        Vec2::new(
-                            scroll
-                                .x
-                                .min(p.natural_content_size.width - parent_layout.size.width)
-                                .max(0.0),
-                            scroll
-                                .y
-                                .min(p.natural_content_size.height - parent_layout.size.height)
-                                .max(0.0),
-                        )
-                    })
-                    .unwrap_or_default();
-
-              let location = *parent_location_offset - parent_scroll_offset
-                    + epaint::Vec2::new(layout.location.x, layout.location.y);
-
-            let node_rect = epaint::Rect {
-                min: location.to_pos2(),
-                max: Pos2 { x: location.x + layout.size.width, y: location.y + layout.size.height },
-            };
-           
+            let location = node.computed_rect.min.to_vec2();
             
-            if node_rect.contains(translated_mouse_pos)
+            if node.computed_rect.contains(translated_mouse_pos)
             {
                 elements.push(node.id);       
-                if node.tag == "text".into() {
-                    cursor = self.get_global_cursor(location, translated_mouse_pos, node, parent.unwrap());
+                if node.tag == "text".into()  {
+                    cursor = self.get_global_cursor(translated_mouse_pos - location, node, parent.unwrap());
                 }     
+
 
                 if !is_any_scrollbar_grabbed && (style.overflow.x == Overflow::Scroll || style.overflow.y == Overflow::Scroll) {
                     current_scroll_node = Some(ScrollNode::new(node.id));
@@ -1035,21 +1025,21 @@ impl DomEventLoop {
                 if style.overflow.y == Overflow::Scroll && style.scrollbar_width != 0.0 && !is_any_scrollbar_grabbed {
                     let scroll_node = current_scroll_node.as_mut().unwrap();
                     scroll_node.set_vertical_scrollbar(
-                        self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, false, are_both_scrollbars_active),
-                        self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, false, are_both_scrollbars_active)
+                        self.renderer.get_scrollbar_rect(node,  style.scrollbar_width, false, are_both_scrollbars_active),
+                        self.renderer.get_scroll_thumb_rect(node,  style.scrollbar_width, false, are_both_scrollbars_active)
                     );
                 }
 
                 if style.overflow.x == Overflow::Scroll && style.scrollbar_width != 0.0 && !is_any_scrollbar_grabbed {
                     let scroll_node = current_scroll_node.as_mut().unwrap();
                     scroll_node.set_horizontal_scrollbar(
-                        self.renderer.get_scrollbar_rect(node, layout, &location, style.scrollbar_width, true, are_both_scrollbars_active),
-                        self.renderer.get_scroll_thumb_rect(node, layout, &location, style.scrollbar_width, true, are_both_scrollbars_active)
+                        self.renderer.get_scrollbar_rect(node,  style.scrollbar_width, true, are_both_scrollbars_active),
+                        self.renderer.get_scroll_thumb_rect(node,  style.scrollbar_width, true, are_both_scrollbars_active)
                     );
                 }
             }
 
-            (true, location)
+            true
         });
 
         if let Some(scroll_node) = current_scroll_node.as_mut() {
@@ -1062,11 +1052,17 @@ impl DomEventLoop {
         elements
     }
 
-    pub fn get_global_cursor(&self, location: Vec2, translated_mouse_pos: Pos2,  node: &Node, parent: &Node) -> (epaint::text::cursor::Cursor, NodeId) {    
+    pub fn get_global_cursor(&self, relative_position: Pos2,  node: &Node, parent: &Node) -> (epaint::text::cursor::Cursor, NodeId) {    
         let text = node.attrs.get("value").unwrap();
         let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
-        let relative_mouse_pos = translated_mouse_pos - location;
-        let cursor = galley.cursor_from_pos(relative_mouse_pos.to_vec2());
+
+        let cursor = galley.cursor_from_pos(relative_position.to_vec2());
+
+
+// println!("galley: {:?}", galley);
+        // if (galley.rect.intersect(Rect::from_two_pos(relative_position)) {
+
+        // }
 
         (cursor, parent.id)
     }
@@ -1104,15 +1100,30 @@ impl DomEventLoop {
         
         for node_id in elements {
             self.send_event_to_element(node_id, "mousemove", Arc::new(events::Event::PointerMoved(PointerMove { pos })));
-            if self.cursor_state.is_button_down {
-                self.send_event_to_element(node_id, "drag", Arc::new(events::Event::Drag(Drag {
+            // if self.cursor_state.is_button_down {
+            //     self.send_event_to_element(node_id, "drag", Arc::new(events::Event::Drag(Drag {
+            //         current_position: pos, 
+            //         start_position: self.cursor_state.drag_start.1,
+            //         cursor_position: self.cursor_state.cursor.pcursor.offset 
+            //     })));
+            // }
+        }
+
+        if self.cursor_state.is_button_down {
+            // self.cursor_state.cursor = self.get_global_cursor(self.cursor_state.drag_start.1, node, parent)
+            for node_id in self.cursor_state.drag_start.0.clone().iter() {
+
+                // self.vdom
+                self.send_event_to_element(*node_id, "drag", Arc::new(events::Event::Drag(Drag {
                     current_position: pos, 
-                    start_position: self.cursor_state.drag_start_pos,
+                    start_position: self.cursor_state.drag_start.1,
                     cursor_position: self.cursor_state.cursor.pcursor.offset 
                 })));
             }
-        }
 
+            // handle cursor
+            
+        }
         true
     }
 
@@ -1137,7 +1148,9 @@ impl DomEventLoop {
         
         self.cursor_state.is_button_down = state == winit::event::ElementState::Pressed;
         if state == winit::event::ElementState::Pressed {
-            self.cursor_state.drag_start_pos = self.cursor_state.last_pos;
+            self.cursor_state.drag_start = (elements.clone(), self.cursor_state.last_pos);
+        } else {
+            self.cursor_state.drag_start = (smallvec![], Pos2::ZERO);
         }
 
 

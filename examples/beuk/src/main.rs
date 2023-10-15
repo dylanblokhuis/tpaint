@@ -56,6 +56,7 @@ fn main() {
         window.scale_factor() as f32,
         event_loop.create_proxy(),
         (),
+        (),
     );
 
     event_loop.run(move |event, _, control_flow| {
