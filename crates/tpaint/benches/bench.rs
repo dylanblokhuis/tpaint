@@ -41,6 +41,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         window.scale_factor() as f32,
         event_loop.create_proxy(),
         (),
+        (),
     );
 
     c.bench_function("calculate_layout", |b| {

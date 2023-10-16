@@ -157,7 +157,10 @@ fn main() {
         .expect("set up the subscriber");
     }
 
-    SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .init()
+        .unwrap();
 
     let clear_color = [1.0, 1.0, 1.0];
 
@@ -170,6 +173,7 @@ fn main() {
         gl_window.window().inner_size(),
         gl_window.window().scale_factor() as f32,
         event_loop.create_proxy(),
+        (),
         (),
     );
     let mut painter = Painter::new(gl.clone(), "", None)

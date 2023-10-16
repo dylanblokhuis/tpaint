@@ -5,10 +5,12 @@ use dioxus::prelude::*;
 #[derive(Props)]
 pub struct InputProps<'a> {
     pub name: &'a str,
+    pub onchange: EventHandler<'a, &'a str>,
+    pub default_value: &'a str,
 }
 
 pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
-    let text = use_state(cx, || "".to_string());
+    let text = use_state(cx, || cx.props.default_value.to_string());
     let cursor_pos = use_state(cx, || 0);
     let is_focused = use_state(cx, || false);
     let cursor_visible = use_state(cx, || false);
@@ -192,12 +194,16 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             });
             cursor_pos.set(start + 1);
             selection_start.set(start + 1);
+
+            cx.props.onchange.call(text.get());
         } else {
             let mut chars = text.chars().collect::<Vec<_>>();
             chars.insert(*cursor_pos.get(), event.char);
             text.set(chars.iter().collect());
             cursor_pos.set(cursor_pos + 1);
             selection_start.set(cursor_pos + 1);
+
+            cx.props.onchange.call(text.get());
         }
     };
 

@@ -1,8 +1,8 @@
 use epaint::{
-    text::FontDefinitions,
+    text::{FontDefinitions},
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, Rect, Shape, TessellationOptions, TextureId,
-    TextureManager, Vec2, WHITE_UV,
+    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TessellationOptions,
+    TextureId, TextureManager, Vec2, WHITE_UV,
 };
 
 use taffy::{
@@ -228,6 +228,54 @@ impl Renderer {
                 .compute_layout(root_taffy_id, available_space)
                 .unwrap();
         }
+
+        // Now we do a pass so we cache the computed layout in our VDom tree
+        {
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout cache layout pass").entered();
+
+            let root_id = vdom.get_root_id();
+            vdom.traverse_tree_mut_with_parent_and_data(
+                root_id,
+                None,
+                &Vec2::ZERO,
+                &mut |node, parent, parent_location_offset| {
+                    let taffy_id = node.styling.node.unwrap();
+                    let layout = self.taffy.layout(taffy_id).unwrap();
+
+                    let parent_scroll_offset = parent
+                        .map(|p| {
+                            let scroll = p.scroll;
+                            let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
+
+                            Vec2::new(
+                                scroll
+                                    .x
+                                    .min(p.natural_content_size.width - parent_layout.size.width)
+                                    .max(0.0),
+                                scroll
+                                    .y
+                                    .min(p.natural_content_size.height - parent_layout.size.height)
+                                    .max(0.0),
+                            )
+                        })
+                        .unwrap_or_default();
+
+                    let location = *parent_location_offset - parent_scroll_offset
+                        + epaint::Vec2::new(layout.location.x, layout.location.y);
+
+                    node.computed_rect = epaint::Rect {
+                        min: location.to_pos2(),
+                        max: Pos2 {
+                            x: location.x + layout.size.width,
+                            y: location.y + layout.size.height,
+                        },
+                    };
+
+                    (true, location)
+                },
+            );
+        }
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
@@ -240,53 +288,29 @@ impl Renderer {
         vdom.traverse_tree_with_parent_and_data(
             root_id,
             None,
-            &(Vec2::ZERO, None),
-            &mut |node, parent, (parent_location_offset, parent_clip): &(Vec2, Option<Rect>)| {
+            &None,
+            &mut |node, parent, parent_clip: &Option<Rect>| {
                 let taffy_id = node.styling.node.unwrap();
-                let layout = self.taffy.layout(taffy_id).unwrap();
-
-                let parent_scroll_offset = parent
-                    .map(|p| {
-                        let scroll = p.scroll;
-                        let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
-
-                        Vec2::new(
-                            scroll
-                                .x
-                                .min(p.natural_content_size.width - parent_layout.size.width)
-                                .max(0.0),
-                            scroll
-                                .y
-                                .min(p.natural_content_size.height - parent_layout.size.height)
-                                .max(0.0),
-                        )
-                    })
-                    .unwrap_or_default();
-
-                let location = *parent_location_offset - parent_scroll_offset
-                    + epaint::Vec2::new(layout.location.x, layout.location.y);
-
                 let style = self.taffy.style(taffy_id).unwrap();
+
+                // we need to make sure the scrollbar doesnt get overwritten
                 let node_clip = {
                     epaint::Rect {
-                        min: epaint::Pos2 {
-                            x: location.x,
-                            y: location.y,
-                        },
+                        min: node.computed_rect.min,
                         max: epaint::Pos2 {
                             x: if style.overflow.y == Overflow::Scroll
                                 && style.scrollbar_width != 0.0
                             {
-                                location.x + layout.size.width - style.scrollbar_width
+                                node.computed_rect.max.x - style.scrollbar_width
                             } else {
-                                location.x + layout.size.width
+                                node.computed_rect.max.x
                             },
                             y: if style.overflow.x == Overflow::Scroll
                                 && style.scrollbar_width != 0.0
                             {
-                                location.y + layout.size.height - style.scrollbar_width
+                                node.computed_rect.max.y - style.scrollbar_width
                             } else {
-                                location.y + layout.size.height
+                                node.computed_rect.max.y
                             },
                         },
                     }
@@ -309,7 +333,7 @@ impl Renderer {
                 match &(*node.tag) {
                     "text" => {
                         let parent = parent.unwrap();
-                        let shape = self.get_text_shape(node, parent, clip, layout, &location);
+                        let shape = self.get_text_shape(node, parent, clip);
 
                         if let Some(cursor) = parent.attrs.get("cursor") {
                             let epaint::Shape::Text(text_shape) = &shape.shape else {
@@ -329,7 +353,7 @@ impl Renderer {
                                 }
 
                                 if let Ok(selection_start) = str::parse::<usize>(selection_start) {
-                                    shapes.push(self.get_text_selection_shape(
+                                    shapes.extend_from_slice(&self.get_text_selection_shape(
                                         text_shape,
                                         cursor,
                                         selection_start,
@@ -342,7 +366,7 @@ impl Renderer {
                         shapes.push(shape);
                     }
                     _ => {
-                        shapes.push(self.get_rect_shape(node, clip, layout, &location));
+                        shapes.push(self.get_rect_shape(node, clip));
                         let style = self.taffy.style(taffy_id).unwrap();
 
                         let are_both_scrollbars_visible = style.overflow.x == Overflow::Scroll
@@ -352,8 +376,6 @@ impl Renderer {
                             let (container, button) = self.get_scrollbar_shape(
                                 node,
                                 style.scrollbar_width,
-                                layout,
-                                &location,
                                 false,
                                 are_both_scrollbars_visible,
                                 vdom.current_scroll_node
@@ -377,8 +399,6 @@ impl Renderer {
                             let (container, button) = self.get_scrollbar_shape(
                                 node,
                                 style.scrollbar_width,
-                                layout,
-                                &location,
                                 true,
                                 are_both_scrollbars_visible,
                                 vdom.current_scroll_node
@@ -410,7 +430,7 @@ impl Renderer {
                     }
                 }
 
-                (true, (location, Some(clip)))
+                (true, Some(clip))
             },
         );
 
@@ -443,46 +463,46 @@ impl Renderer {
     pub fn get_scrollbar_rect(
         &self,
         node: &Node,
-        layout: &taffy::prelude::Layout,
-        location: &Vec2,
         bar_width: f32,
         horizontal: bool,
         are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
+        let location = node.computed_rect.min;
+        let size = node.computed_rect.size();
 
         if horizontal {
             epaint::Rect {
                 min: epaint::Pos2 {
                     x: location.x + styling.border.width / 2.0,
-                    y: location.y + layout.size.height - bar_width,
+                    y: location.y + size.y - bar_width,
                 },
                 max: epaint::Pos2 {
-                    x: location.x + layout.size.width
+                    x: location.x + size.x
                         - styling.border.width / 2.0
                         - if are_both_scrollbars_visible {
                             bar_width
                         } else {
                             0.0
-                        }, // <- Adjust here
-                    y: location.y + layout.size.height,
+                        },
+                    y: location.y + size.y,
                 },
             }
         } else {
             epaint::Rect {
                 min: epaint::Pos2 {
-                    x: location.x + layout.size.width - bar_width,
+                    x: location.x + size.x - bar_width,
                     y: location.y + styling.border.width / 2.0,
                 },
                 max: epaint::Pos2 {
-                    x: location.x + layout.size.width,
-                    y: location.y + layout.size.height
+                    x: location.x + size.x,
+                    y: location.y + size.y
                         - styling.border.width / 2.0
                         - if are_both_scrollbars_visible {
                             bar_width
                         } else {
                             0.0
-                        }, // <- Adjust here
+                        },
                 },
             }
         }
@@ -491,19 +511,19 @@ impl Renderer {
     pub fn get_scroll_thumb_rect(
         &self,
         node: &Node,
-        layout: &taffy::prelude::Layout,
-        location: &Vec2,
         bar_width: f32,
         horizontal: bool,
         are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
+        let location = node.computed_rect.min;
+        let size = node.computed_rect.size();
 
         let button_width = bar_width * 0.50; // 50% of bar_width
 
         if horizontal {
-            let thumb_width = (layout.size.width / node.natural_content_size.width)
-                * (layout.size.width
+            let thumb_width = (size.x / node.natural_content_size.width)
+                * (size.x
                     - styling.border.width
                     - if are_both_scrollbars_visible {
                         bar_width
@@ -511,7 +531,7 @@ impl Renderer {
                         0.0
                     });
 
-            let thumb_max_x = layout.size.width
+            let thumb_max_x = size.x
                 - styling.border.width
                 - thumb_width
                 - if are_both_scrollbars_visible {
@@ -519,25 +539,22 @@ impl Renderer {
                 } else {
                     0.0
                 };
-            let thumb_position_x = (node.scroll.x
-                / (node.natural_content_size.width - layout.size.width))
-                * thumb_max_x;
+            let thumb_position_x =
+                (node.scroll.x / (node.natural_content_size.width - size.x)) * thumb_max_x;
 
             epaint::Rect {
                 min: epaint::Pos2 {
                     x: location.x + styling.border.width / 2.0 + thumb_position_x,
-                    y: location.y + layout.size.height - bar_width
-                        + (bar_width - button_width) / 2.0,
+                    y: location.y + size.y - bar_width + (bar_width - button_width) / 2.0,
                 },
                 max: epaint::Pos2 {
                     x: location.x + styling.border.width / 2.0 + thumb_position_x + thumb_width,
-                    y: location.y + layout.size.height - bar_width
-                        + (bar_width + button_width) / 2.0,
+                    y: location.y + size.y - bar_width + (bar_width + button_width) / 2.0,
                 },
             }
         } else {
-            let thumb_height = (layout.size.height / node.natural_content_size.height)
-                * (layout.size.height
+            let thumb_height = (size.y / node.natural_content_size.height)
+                * (size.y
                     - styling.border.width
                     - if are_both_scrollbars_visible {
                         bar_width
@@ -545,7 +562,7 @@ impl Renderer {
                         0.0
                     });
 
-            let thumb_max_y = layout.size.height
+            let thumb_max_y = size.y
                 - styling.border.width
                 - thumb_height
                 - if are_both_scrollbars_visible {
@@ -553,19 +570,16 @@ impl Renderer {
                 } else {
                     0.0
                 };
-            let thumb_position_y = (node.scroll.y
-                / (node.natural_content_size.height - layout.size.height))
-                * thumb_max_y;
+            let thumb_position_y =
+                (node.scroll.y / (node.natural_content_size.height - size.y)) * thumb_max_y;
 
             epaint::Rect {
                 min: epaint::Pos2 {
-                    x: location.x + layout.size.width - bar_width
-                        + (bar_width - button_width) / 2.0,
+                    x: location.x + size.x - bar_width + (bar_width - button_width) / 2.0,
                     y: location.y + styling.border.width / 2.0 + thumb_position_y,
                 },
                 max: epaint::Pos2 {
-                    x: location.x + layout.size.width - bar_width
-                        + (bar_width + button_width) / 2.0,
+                    x: location.x + size.x - bar_width + (bar_width + button_width) / 2.0,
                     y: location.y + styling.border.width / 2.0 + thumb_position_y + thumb_height,
                 },
             }
@@ -576,8 +590,6 @@ impl Renderer {
         &self,
         node: &Node,
         bar_width: f32,
-        layout: &taffy::prelude::Layout,
-        location: &Vec2,
         horizontal: bool,
         are_both_scrollbars_visible: bool,
         hovered: bool,
@@ -586,14 +598,7 @@ impl Renderer {
         let styling = &node.styling;
 
         let container_shape = epaint::Shape::Rect(epaint::RectShape {
-            rect: self.get_scrollbar_rect(
-                node,
-                layout,
-                location,
-                bar_width,
-                horizontal,
-                are_both_scrollbars_visible,
-            ),
+            rect: self.get_scrollbar_rect(node, bar_width, horizontal, are_both_scrollbars_visible),
             rounding: epaint::Rounding::ZERO,
             fill: if hovered {
                 styling.scrollbar.background_color_hovered
@@ -608,8 +613,6 @@ impl Renderer {
         let button_shape = epaint::Shape::Rect(epaint::RectShape {
             rect: self.get_scroll_thumb_rect(
                 node,
-                layout,
-                location,
                 bar_width,
                 horizontal,
                 are_both_scrollbars_visible,
@@ -677,32 +680,17 @@ impl Renderer {
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_text_shape")]
-    fn get_text_shape(
-        &self,
-        node: &Node,
-        parent_node: &Node,
-        parent_clip: Rect,
-        layout: &taffy::prelude::Layout,
-        location: &Vec2,
-    ) -> ClippedShape {
+    fn get_text_shape(&self, node: &Node, parent_node: &Node, parent_clip: Rect) -> ClippedShape {
         let parent = &parent_node.styling;
 
         let galley = self.fonts.layout(
             node.attrs.get("value").unwrap().clone(),
             parent.text.font.clone(),
             parent.text.color,
-            layout.size.width + 0.5,
+            node.computed_rect.size().x + 0.5,
         );
 
-        let rect: Rect = Rect::from_min_size(
-            epaint::Pos2 {
-                x: location.x,
-                y: location.y,
-            },
-            galley.size(),
-        );
-
-        let shape = Shape::galley(rect.min, galley);
+        let shape = Shape::galley(node.computed_rect.min, galley);
 
         ClippedShape {
             clip_rect: parent_clip,
@@ -753,90 +741,127 @@ impl Renderer {
         cursor_pos: usize,
         selection_start: usize,
         selection_color: Color32,
-    ) -> ClippedShape {
+    ) -> Vec<ClippedShape> {
         let cursor_rect = text_shape
             .galley
-            .pos_from_cursor(&epaint::text::cursor::Cursor {
-                pcursor: epaint::text::cursor::PCursor {
-                    paragraph: 0,
-                    offset: cursor_pos,
-                    prefer_next_row: false,
-                },
-                ..Default::default()
+            .pos_from_pcursor(epaint::text::cursor::PCursor {
+                paragraph: 0,
+                offset: cursor_pos,
+                prefer_next_row: false,
             });
 
         let selection_rect = text_shape
             .galley
-            .pos_from_cursor(&epaint::text::cursor::Cursor {
-                pcursor: epaint::text::cursor::PCursor {
-                    paragraph: 0,
-                    offset: selection_start,
-                    prefer_next_row: false,
-                },
-                ..Default::default()
+            .pos_from_pcursor(epaint::text::cursor::PCursor {
+                paragraph: 0,
+                offset: selection_start,
+                prefer_next_row: false,
             });
 
-        let mut rect = if cursor_pos > selection_start {
-            epaint::Rect::from_min_max(
-                epaint::Pos2 {
-                    x: selection_rect.min.x,
-                    y: selection_rect.min.y,
-                },
-                epaint::Pos2 {
-                    x: cursor_rect.max.x,
-                    y: cursor_rect.max.y,
-                },
-            )
+        let mut shapes = Vec::new();
+
+        // swap if cursor is before selection
+
+        let (start_cursor, end_cursor) = if cursor_pos < selection_start {
+            let start_cursor = text_shape
+                .galley
+                .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
+
+            let end_cursor = text_shape
+                .galley
+                .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
+
+            (start_cursor, end_cursor)
         } else {
-            epaint::Rect::from_min_max(
-                epaint::Pos2 {
-                    x: cursor_rect.min.x,
-                    y: cursor_rect.min.y,
-                },
-                epaint::Pos2 {
-                    x: selection_rect.max.x,
-                    y: selection_rect.max.y,
-                },
-            )
+            let start_cursor = text_shape
+                .galley
+                .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
+            let end_cursor = text_shape
+                .galley
+                .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
+
+            (start_cursor, end_cursor)
         };
 
-        rect.min.x += text_shape.pos.x;
-        rect.max.x += text_shape.pos.x;
-        rect.min.y += text_shape.pos.y;
-        rect.max.y += text_shape.pos.y;
+        let min = start_cursor.rcursor;
+        let max = end_cursor.rcursor;
 
-        ClippedShape {
-            clip_rect: rect,
-            shape: epaint::Shape::Rect(epaint::RectShape {
-                rect,
-                rounding: epaint::Rounding::ZERO,
-                fill: selection_color,
-                stroke: epaint::Stroke::default(),
-                fill_texture_id: TextureId::default(),
-                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
-            }),
+        for ri in min.row..=max.row {
+            let row = &text_shape.galley.rows[ri];
+            let left = if ri == min.row {
+                row.x_offset(min.column)
+            } else {
+                row.rect.left()
+            };
+            let right = if ri == max.row {
+                row.x_offset(max.column)
+            } else {
+                let newline_size = if row.ends_with_newline {
+                    row.height() / 2.0 // visualize that we select the newline
+                } else {
+                    0.0
+                };
+                row.rect.right() + newline_size
+            };
+            let rect = Rect::from_min_max(
+                text_shape.pos + vec2(left, row.min_y()),
+                text_shape.pos + vec2(right, row.max_y()),
+            );
+            shapes.push(ClippedShape {
+                clip_rect: rect,
+                shape: epaint::Shape::Rect(epaint::RectShape {
+                    rect,
+                    rounding: epaint::Rounding::ZERO,
+                    fill: selection_color,
+                    stroke: epaint::Stroke::default(),
+                    fill_texture_id: TextureId::default(),
+                    uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+                }),
+            });
         }
+
+        // let mut rect = if cursor_pos > selection_start {
+        //     epaint::Rect::from_min_max(
+        //         epaint::Pos2 {
+        //             x: selection_rect.min.x,
+        //             y: selection_rect.min.y,
+        //         },
+        //         epaint::Pos2 {
+        //             x: cursor_rect.max.x,
+        //             y: cursor_rect.max.y,
+        //         },
+        //     )
+        // } else {
+        //     epaint::Rect::from_min_max(
+        //         epaint::Pos2 {
+        //             x: cursor_rect.min.x,
+        //             y: cursor_rect.min.y,
+        //         },
+        //         epaint::Pos2 {
+        //             x: selection_rect.max.x,
+        //             y: selection_rect.max.y,
+        //         },
+        //     )
+        // };
+
+        // rect.min.x += text_shape.pos.x;
+        // rect.max.x += text_shape.pos.x;
+        // rect.min.y += text_shape.pos.y;
+        // rect.max.y += text_shape.pos.y;
+
+        shapes
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_rect_shape")]
-    fn get_rect_shape(
-        &self,
-        node: &Node,
-        parent_clip: Rect,
-        layout: &taffy::prelude::Layout,
-        location: &Vec2,
-    ) -> ClippedShape {
+    fn get_rect_shape(&self, node: &Node, parent_clip: Rect) -> ClippedShape {
         let styling = &node.styling;
         let rounding = styling.border.radius;
         let rect = epaint::Rect {
             min: epaint::Pos2 {
-                x: location.x + styling.border.width / 2.0,
-                y: location.y + styling.border.width / 2.0,
+                x: node.computed_rect.min.x + styling.border.width / 2.0,
+                y: node.computed_rect.min.y + styling.border.width / 2.0,
             },
-            max: epaint::Pos2 {
-                x: location.x + layout.size.width,
-                y: location.y + layout.size.height,
-            },
+            max: node.computed_rect.max,
         };
 
         let shape = epaint::Shape::Rect(epaint::RectShape {
