@@ -1,6 +1,5 @@
 use epaint::{
-    pos2,
-    text::{self, FontDefinitions},
+    text::{FontDefinitions},
     textures::{TextureOptions, TexturesDelta},
     vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TessellationOptions,
     TextureId, TextureManager, Vec2, WHITE_UV,

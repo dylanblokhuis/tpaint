@@ -921,7 +921,7 @@ impl DomEventLoop {
                 self.on_keyboard_input(input)
             }
 
-            WindowEvent::MouseWheel { delta, phase, .. } => {                
+            WindowEvent::MouseWheel { delta,  .. } => {                
                 let mut vdom = self.vdom.lock().unwrap();
                 let Some(scroll_node) = vdom.current_scroll_node else {
                     return false;
@@ -939,7 +939,7 @@ impl DomEventLoop {
                 );
             
                 match delta {
-                    MouseScrollDelta::LineDelta(x, y) => {                                             
+                    MouseScrollDelta::LineDelta(_x, y) => {                                             
                         if self.keyboard_state.modifiers.shift {
                             node.scroll.x -= y * tick_size;
                         } else {
