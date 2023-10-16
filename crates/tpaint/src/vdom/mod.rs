@@ -877,6 +877,7 @@ impl DomEventLoop {
         self.renderer.get_paint_info(&vdom)
     }
 
+
     /// bool: whether the window needs to be redrawn
     pub fn on_window_event(&mut self, event: &winit::event::WindowEvent<'_>) -> bool {
         use winit::event::WindowEvent;
@@ -989,31 +990,25 @@ impl DomEventLoop {
         let mut vdom = self.vdom.lock().unwrap();
         let root_id = vdom.get_root_id();
         let mut elements = smallvec![];
-        let mut cursor: (epaint::text::cursor::Cursor, NodeId) = (epaint::text::cursor::Cursor::default(), NodeId::default());
+        // let mut cursor: (epaint::text::cursor::Cursor, NodeId) = (epaint::text::cursor::Cursor::default(), NodeId::default());
         let mut current_scroll_node = vdom.current_scroll_node;
         let is_horizontal_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_horizontal_scrollbar_button_grabbed).unwrap_or_default();
         let is_vertical_scroll_is_being_dragged = current_scroll_node.map(|s| s.is_vertical_scrollbar_button_grabbed).unwrap_or_default();
         let is_any_scrollbar_grabbed = is_horizontal_scroll_is_being_dragged || is_vertical_scroll_is_being_dragged;
-        vdom.traverse_tree_mut_with_parent(
+        vdom.traverse_tree(
             root_id,
-            None,
-            &mut |node, parent| {
+            &mut |node| {
             let Some(node_id) = node.styling.node else {
                 return false;
             };
 
-            let layout = self.renderer.taffy.layout(node_id).unwrap();
             let style = self.renderer.taffy.style(node_id).unwrap();
 
-            let location = node.computed_rect.min.to_vec2();
             
             if node.computed_rect.contains(translated_mouse_pos)
             {
                 elements.push(node.id);       
-                if node.tag == "text".into()  {
-                    cursor = self.get_global_cursor(translated_mouse_pos - location, node, parent.unwrap());
-                }     
-
+                
 
                 if !is_any_scrollbar_grabbed && (style.overflow.x == Overflow::Scroll || style.overflow.y == Overflow::Scroll) {
                     current_scroll_node = Some(ScrollNode::new(node.id));
@@ -1046,25 +1041,57 @@ impl DomEventLoop {
             scroll_node.on_mouse_move(&translated_mouse_pos, vdom.nodes[scroll_node.id].natural_content_size, &mut vdom.nodes[scroll_node.id].scroll);
         }
 
-        self.cursor_state.cursor = cursor.0;
+        // self.cursor_state.cursor = cursor.0;
         vdom.current_scroll_node = current_scroll_node;
         vdom.hovered = elements.clone();
         elements
     }
 
-    pub fn get_global_cursor(&self, relative_position: Pos2,  node: &Node, parent: &Node) -> (epaint::text::cursor::Cursor, NodeId) {    
-        let text = node.attrs.get("value").unwrap();
-        let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
+    /// finds the first text element on the mouse position and sets the global cursor
+    pub fn set_global_cursor(&mut self, mouse_pos: Pos2, specific_nodes: &[NodeId]) {    
+        let vdom = self.vdom.clone();
+        let  vdom = vdom.lock().unwrap();
+        let root_id = vdom.get_root_id();
 
-        let cursor = galley.cursor_from_pos(relative_position.to_vec2());
+        // on input fields you want to select the text on the mouse position, but since the text is not as big as the parent container we need to check this.
+        let mut only_parent_of_text_clicked = None;
 
+        vdom.traverse_tree_with_parent(root_id, None, &mut |node, parent| {
+            if !specific_nodes.is_empty() && !specific_nodes.contains(&node.id) {
+                return true;
+            }
+            
 
-// println!("galley: {:?}", galley);
-        // if (galley.rect.intersect(Rect::from_two_pos(relative_position)) {
+            if node.tag == "text".into() {
+                only_parent_of_text_clicked = None;
+                let relative_position = mouse_pos.to_vec2() - node.computed_rect.min.to_vec2();
+                let text = node.attrs.get("value").unwrap();
+                let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.unwrap().styling);
+                let cursor = galley.cursor_from_pos(relative_position);
+                self.cursor_state.cursor = cursor;
+                return false;
+            }
 
-        // }
+            if node.attrs.get("cursor").is_some() {
+                only_parent_of_text_clicked = Some(node.id);
 
-        (cursor, parent.id)
+                return true;
+            }
+            
+            true
+        });
+
+        if let Some(parent_id) = only_parent_of_text_clicked {
+            let parent = vdom.nodes.get(parent_id).unwrap();
+            let node = vdom.nodes.get(*parent.children.first().unwrap()).unwrap();
+
+            let relative_position = mouse_pos.to_vec2() - node.computed_rect.min.to_vec2();
+            let text = node.attrs.get("value").unwrap();
+            let galley = node.styling.get_font_galley(text, &self.renderer.taffy, &self.renderer.fonts, &parent.styling);
+            let cursor = galley.cursor_from_pos(relative_position);
+            self.cursor_state.cursor = cursor;
+        }
+        // picked_node
     }
 
     fn translate_mouse_pos(&self, pos_in_pixels: &PhysicalPosition<f64>) -> epaint::Pos2 {
@@ -1074,7 +1101,7 @@ impl DomEventLoop {
         )
     }
 
-    fn send_event_to_element(&mut self, node_id: NodeId, listener: &str, event: Arc<events::Event>) {
+    fn send_event_to_element(&self, node_id: NodeId, listener: &str, event: Arc<events::Event>) {
         let vdom = self.vdom.lock().unwrap();
         let Some(listeners) = vdom.event_listeners.get(&node_id) else {
             return;
@@ -1100,28 +1127,18 @@ impl DomEventLoop {
         
         for node_id in elements {
             self.send_event_to_element(node_id, "mousemove", Arc::new(events::Event::PointerMoved(PointerMove { pos })));
-            // if self.cursor_state.is_button_down {
-            //     self.send_event_to_element(node_id, "drag", Arc::new(events::Event::Drag(Drag {
-            //         current_position: pos, 
-            //         start_position: self.cursor_state.drag_start.1,
-            //         cursor_position: self.cursor_state.cursor.pcursor.offset 
-            //     })));
-            // }
         }
 
         if self.cursor_state.is_button_down {
-            // self.cursor_state.cursor = self.get_global_cursor(self.cursor_state.drag_start.1, node, parent)
-            for node_id in self.cursor_state.drag_start.0.clone().iter() {
+           self.set_global_cursor(pos, &self.cursor_state.drag_start.0.clone());
 
-                // self.vdom
+            for node_id in self.cursor_state.drag_start.0.iter() {
                 self.send_event_to_element(*node_id, "drag", Arc::new(events::Event::Drag(Drag {
                     current_position: pos, 
                     start_position: self.cursor_state.drag_start.1,
-                    cursor_position: self.cursor_state.cursor.pcursor.offset 
+                    cursor_position: self.cursor_state.cursor.pcursor.offset
                 })));
             }
-
-            // handle cursor
             
         }
         true
@@ -1148,11 +1165,12 @@ impl DomEventLoop {
         
         self.cursor_state.is_button_down = state == winit::event::ElementState::Pressed;
         if state == winit::event::ElementState::Pressed {
+            self.set_global_cursor(self.cursor_state.last_pos, &elements);
             self.cursor_state.drag_start = (elements.clone(), self.cursor_state.last_pos);
         } else {
             self.cursor_state.drag_start = (smallvec![], Pos2::ZERO);
+            self.cursor_state.cursor.pcursor.offset = 0;
         }
-
 
         {
             let mut vdom = self.vdom.lock().unwrap();
@@ -1170,13 +1188,14 @@ impl DomEventLoop {
                 vdom.current_scroll_node = Some(scroll_node);
             };
         }    
+
         
         let pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
             button,
             pos: self.cursor_state.last_pos,
             modifiers: self.keyboard_state.modifiers,
             pressed: true,
-            cursor_position:self.cursor_state.cursor.pcursor.offset,
+            cursor_position: self.cursor_state.cursor.pcursor.offset,
         }));
 
         let not_pressed_data = Arc::new(events::Event::PointerInput(PointerInput { 
@@ -1202,6 +1221,7 @@ impl DomEventLoop {
 
         true
     }
+    
 
     fn set_focus(
         &mut self,

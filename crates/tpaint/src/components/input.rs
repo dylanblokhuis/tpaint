@@ -217,7 +217,6 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
     };
 
     let handle_drag = move |event: Event<crate::vdom::events::Drag>| {
-        println!("dragging!");
         cursor_pos.set(event.cursor_position);
     };
 

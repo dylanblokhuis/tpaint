@@ -1,7 +1,8 @@
 use epaint::{
-    text::FontDefinitions,
+    pos2,
+    text::{self, FontDefinitions},
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TessellationOptions,
+    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TessellationOptions,
     TextureId, TextureManager, Vec2, WHITE_UV,
 };
 
@@ -353,7 +354,7 @@ impl Renderer {
                                 }
 
                                 if let Ok(selection_start) = str::parse::<usize>(selection_start) {
-                                    shapes.push(self.get_text_selection_shape(
+                                    shapes.extend_from_slice(&self.get_text_selection_shape(
                                         text_shape,
                                         cursor,
                                         selection_start,
@@ -741,69 +742,115 @@ impl Renderer {
         cursor_pos: usize,
         selection_start: usize,
         selection_color: Color32,
-    ) -> ClippedShape {
+    ) -> Vec<ClippedShape> {
         let cursor_rect = text_shape
             .galley
-            .pos_from_cursor(&epaint::text::cursor::Cursor {
-                pcursor: epaint::text::cursor::PCursor {
-                    paragraph: 0,
-                    offset: cursor_pos,
-                    prefer_next_row: false,
-                },
-                ..Default::default()
+            .pos_from_pcursor(epaint::text::cursor::PCursor {
+                paragraph: 0,
+                offset: cursor_pos,
+                prefer_next_row: false,
             });
 
         let selection_rect = text_shape
             .galley
-            .pos_from_cursor(&epaint::text::cursor::Cursor {
-                pcursor: epaint::text::cursor::PCursor {
-                    paragraph: 0,
-                    offset: selection_start,
-                    prefer_next_row: false,
-                },
-                ..Default::default()
+            .pos_from_pcursor(epaint::text::cursor::PCursor {
+                paragraph: 0,
+                offset: selection_start,
+                prefer_next_row: false,
             });
 
-        let mut rect = if cursor_pos > selection_start {
-            epaint::Rect::from_min_max(
-                epaint::Pos2 {
-                    x: selection_rect.min.x,
-                    y: selection_rect.min.y,
-                },
-                epaint::Pos2 {
-                    x: cursor_rect.max.x,
-                    y: cursor_rect.max.y,
-                },
-            )
+        let mut shapes = Vec::new();
+
+        // swap if cursor is before selection
+
+        let (start_cursor, end_cursor) = if cursor_pos < selection_start {
+            let start_cursor = text_shape
+                .galley
+                .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
+
+            let end_cursor = text_shape
+                .galley
+                .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
+
+            (start_cursor, end_cursor)
         } else {
-            epaint::Rect::from_min_max(
-                epaint::Pos2 {
-                    x: cursor_rect.min.x,
-                    y: cursor_rect.min.y,
-                },
-                epaint::Pos2 {
-                    x: selection_rect.max.x,
-                    y: selection_rect.max.y,
-                },
-            )
+            let start_cursor = text_shape
+                .galley
+                .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
+            let end_cursor = text_shape
+                .galley
+                .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
+
+            (start_cursor, end_cursor)
         };
 
-        rect.min.x += text_shape.pos.x;
-        rect.max.x += text_shape.pos.x;
-        rect.min.y += text_shape.pos.y;
-        rect.max.y += text_shape.pos.y;
+        let min = start_cursor.rcursor;
+        let max = end_cursor.rcursor;
 
-        ClippedShape {
-            clip_rect: rect,
-            shape: epaint::Shape::Rect(epaint::RectShape {
-                rect,
-                rounding: epaint::Rounding::ZERO,
-                fill: selection_color,
-                stroke: epaint::Stroke::default(),
-                fill_texture_id: TextureId::default(),
-                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
-            }),
+        for ri in min.row..=max.row {
+            let row = &text_shape.galley.rows[ri];
+            let left = if ri == min.row {
+                row.x_offset(min.column)
+            } else {
+                row.rect.left()
+            };
+            let right = if ri == max.row {
+                row.x_offset(max.column)
+            } else {
+                let newline_size = if row.ends_with_newline {
+                    row.height() / 2.0 // visualize that we select the newline
+                } else {
+                    0.0
+                };
+                row.rect.right() + newline_size
+            };
+            let rect = Rect::from_min_max(
+                text_shape.pos + vec2(left, row.min_y()),
+                text_shape.pos + vec2(right, row.max_y()),
+            );
+            shapes.push(ClippedShape {
+                clip_rect: rect,
+                shape: epaint::Shape::Rect(epaint::RectShape {
+                    rect,
+                    rounding: epaint::Rounding::ZERO,
+                    fill: selection_color,
+                    stroke: epaint::Stroke::default(),
+                    fill_texture_id: TextureId::default(),
+                    uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+                }),
+            });
         }
+
+        // let mut rect = if cursor_pos > selection_start {
+        //     epaint::Rect::from_min_max(
+        //         epaint::Pos2 {
+        //             x: selection_rect.min.x,
+        //             y: selection_rect.min.y,
+        //         },
+        //         epaint::Pos2 {
+        //             x: cursor_rect.max.x,
+        //             y: cursor_rect.max.y,
+        //         },
+        //     )
+        // } else {
+        //     epaint::Rect::from_min_max(
+        //         epaint::Pos2 {
+        //             x: cursor_rect.min.x,
+        //             y: cursor_rect.min.y,
+        //         },
+        //         epaint::Pos2 {
+        //             x: selection_rect.max.x,
+        //             y: selection_rect.max.y,
+        //         },
+        //     )
+        // };
+
+        // rect.min.x += text_shape.pos.x;
+        // rect.max.x += text_shape.pos.x;
+        // rect.min.y += text_shape.pos.y;
+        // rect.max.y += text_shape.pos.y;
+
+        shapes
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_rect_shape")]
