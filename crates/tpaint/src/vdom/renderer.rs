@@ -364,7 +364,7 @@ impl Renderer {
                                 if parent.attrs.get("cursor_visible").unwrap_or(&String::new())
                                     == "true"
                                 {
-                                    shapes.push(self.get_cursor_shape(text_shape, cursor));
+                                    shapes.push(self.get_cursor_shape(parent, text_shape, cursor));
                                 }
 
                                 if let Ok(selection_start) = str::parse::<usize>(selection_start) {
@@ -714,7 +714,12 @@ impl Renderer {
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
-    fn get_cursor_shape(&self, text_shape: &epaint::TextShape, cursor_pos: usize) -> ClippedShape {
+    fn get_cursor_shape(
+        &self,
+        parent: &Node,
+        text_shape: &epaint::TextShape,
+        cursor_pos: usize,
+    ) -> ClippedShape {
         let rect = text_shape
             .galley
             .pos_from_cursor(&epaint::text::cursor::Cursor {
@@ -741,7 +746,7 @@ impl Renderer {
             shape: epaint::Shape::Rect(epaint::RectShape {
                 rect,
                 rounding: epaint::Rounding::ZERO,
-                fill: Color32::BLACK,
+                fill: parent.styling.text.color,
                 stroke: epaint::Stroke::default(),
                 fill_texture_id: TextureId::default(),
                 uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
