@@ -158,7 +158,7 @@ fn main() {
     }
 
     SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
+        .with_level(log::LevelFilter::Debug)
         .init()
         .unwrap();
 

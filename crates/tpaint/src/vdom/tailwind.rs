@@ -109,7 +109,9 @@ impl Tailwind {
         }
 
         if let Some(node) = self.node {
-            taffy.set_style(node, style).unwrap();
+            if &style != taffy.style(node).unwrap() {
+                taffy.set_style(node, style).unwrap();
+            }
         } else {
             self.node = Some(taffy.new_leaf(style).unwrap());
         }
@@ -210,13 +212,9 @@ impl Tailwind {
             style.size.width = Dimension::Length(new_height * aspect_ratio);
         }
 
-        taffy
-            .set_style(
-                self.node
-                    .expect("set_image_default_sizing called before set_styling was called"),
-                style,
-            )
-            .unwrap();
+        if &style != taffy.style(self.node.unwrap()).unwrap() {
+            taffy.set_style(self.node.unwrap(), style).unwrap();
+        }
     }
 
     pub fn get_font_galley(
@@ -255,7 +253,9 @@ impl Tailwind {
             ..Default::default()
         };
 
-        taffy.set_style(self.node.unwrap(), style).unwrap();
+        if &style != taffy.style(self.node.unwrap()).unwrap() {
+            taffy.set_style(self.node.unwrap(), style).unwrap();
+        }
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::handle_class")]

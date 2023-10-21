@@ -10,7 +10,7 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{Element, Scope, TemplateAttribute, TemplateNode, VirtualDom, ScopeId},
 };
-use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2, Rect};
+use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, Pos2, Vec2, Rect, ahash::HashSet};
 use rustc_hash::{FxHashMap, FxHashSet};
 use slotmap::{new_key_type, HopSlotMap};
 use smallvec::{smallvec, SmallVec};
@@ -35,7 +35,7 @@ pub struct Node {
     pub scroll: Vec2,
     pub natural_content_size: Size<f32>,
     /// absolute positioned rect computed by the layout engine
-    pub computed_rect: Rect
+    pub computed_rect: Rect,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -205,7 +205,8 @@ pub struct VDom {
     event_listeners: FxHashMap<NodeId, SmallVec<[Arc<str>; 8]>>,
     hovered: SmallVec<[NodeId; MAX_CHILDREN]>,
     focused: Option<NodeId>,
-    current_scroll_node: Option<ScrollNode>
+    current_scroll_node: Option<ScrollNode>,
+    pub dirty_nodes: HashSet<NodeId>,
 }
 
 impl VDom {
@@ -232,6 +233,9 @@ impl VDom {
         common_tags_and_attr_keys.insert("value".into());
         common_tags_and_attr_keys.insert("image".into());
 
+        let mut dirty_nodes = HashSet::default();
+        dirty_nodes.insert(root_id);
+
         VDom {
             nodes,
             templates: FxHashMap::default(),
@@ -241,7 +245,8 @@ impl VDom {
             event_listeners: FxHashMap::default(),
             hovered: smallvec![],
             focused: None,
-            current_scroll_node: None
+            current_scroll_node: None,
+            dirty_nodes,
         }
     }
 
@@ -309,6 +314,33 @@ impl VDom {
         parent.children.insert(index, new_id);
     }
 
+    pub fn insert_node_after(
+        &mut self,
+        old_node_id: NodeId,
+        new_id: NodeId,
+    ) {
+        let parent_id = {
+            self.nodes[old_node_id].parent_id.unwrap()
+        };
+
+        {
+            let node = self.nodes.get_mut(new_id).unwrap();
+            node.parent_id = Some(parent_id);
+        }
+        
+        let parent = self.nodes.get_mut(parent_id).unwrap();
+        
+        let index = parent
+            .children
+            .iter()
+            .position(|child| {
+                *child == old_node_id
+            })
+            .unwrap();
+
+        parent.children.insert(index + 1, new_id);
+    }
+
     #[tracing::instrument(skip_all, name = "VDom::apply_mutations")]
     pub fn apply_mutations(&mut self, mutations: Mutations) {
         for template in mutations.templates {
@@ -316,6 +348,7 @@ impl VDom {
             for root in template.roots {
                 let id: NodeId = self.create_template_node(root, Some(self.element_id_mapping[&ElementId(0)]));
                 children.push(id);
+                self.dirty_nodes.insert(id);
             }
             println!("inserting template {:?}", template.name);
             self.templates.insert(template.name.to_string(), children);
@@ -328,19 +361,40 @@ impl VDom {
                     let new_id = self.clone_node(template_id, Some(self.element_id_mapping[&ElementId(0)]));
                     self.stack.push(new_id);
                     self.element_id_mapping.insert(id, new_id);
+                    self.dirty_nodes.insert(new_id);
                 }
                 dioxus::core::Mutation::AssignId { path, id } => {
                     let node_id = self.load_path(path);
                     self.element_id_mapping.insert(id, node_id);
                 }
+
+                dioxus::core::Mutation::CreatePlaceholder { id } => {
+                    let mut node = Node {
+                        id: NodeId::default(),
+                        parent_id: None,
+                        attrs: FxHashMap::default(),
+                        children: smallvec![],
+                        computed_rect: Rect::ZERO,
+                        natural_content_size: Size::ZERO,
+                        scroll: Vec2::ZERO,
+                        styling: Tailwind::default(),
+                        tag: "placeholder".into(),
+                    };
+                    let node_id = self.nodes.insert_with_key(|id| {
+                        node.id = id;
+                        node
+                    });
+                    self.element_id_mapping.insert(id, node_id);
+                    self.stack.push(node_id);
+                }
                
                 dioxus::core::Mutation::AppendChildren { m, id } => {
-                    // println!("stack_len {}", self.stack.len());
                     let children = self.split_stack(self.stack.len() - m);
                     let parent = self.element_id_mapping[&id];
                     for child in children {
                         self.nodes[parent].children.push(child);
                     }
+                     self.dirty_nodes.insert(parent);
                 }
                 dioxus::core::Mutation::NewEventListener { name, id } => {
                     let name = self.get_tag_or_attr_key(name);
@@ -380,6 +434,30 @@ impl VDom {
                             },
                         );
                     }
+                     self.dirty_nodes.insert(node_id);
+                }
+                dioxus::core::Mutation::CreateTextNode { value, id } => {
+                    let mut attrs = FxHashMap::default();
+                    attrs.insert(self.get_tag_or_attr_key("value"), value.to_string());
+
+                    let mut node = Node {
+                        id: NodeId::default(),
+                        parent_id: None,
+                        attrs,
+                        children: smallvec![],
+                        computed_rect: Rect::ZERO,
+                        natural_content_size: Size::ZERO,
+                        scroll: Vec2::ZERO,
+                        styling: Tailwind::default(),
+                        tag: "text".into(),
+                    };
+                    let node_id = self.nodes.insert_with_key(|id| {
+                        node.id = id;
+                        node
+                    });
+
+                    self.element_id_mapping.insert(id, node_id);
+                    self.stack.push(node_id);
                 }
                 dioxus::core::Mutation::HydrateText { path, value, id } => {
                     let node_id = self.load_path(path);
@@ -387,19 +465,22 @@ impl VDom {
                     self.element_id_mapping.insert(id, node_id);
                     let node = self.nodes.get_mut(node_id).unwrap();
                     node.attrs.insert(key, value.to_string());
+                     self.dirty_nodes.insert(node_id);
                 }
                 dioxus::core::Mutation::SetText { value, id } => {
                     let node_id = self.element_id_mapping[&id];
                     let key = self.get_tag_or_attr_key("value");
                     let node = self.nodes.get_mut(node_id).unwrap();
                     node.attrs.insert(key, value.to_string());
+                     self.dirty_nodes.insert(node_id);
                 }
 
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
                     let new_nodes = self.split_stack(self.stack.len() - m);
                     let old_node_id = self.element_id_mapping[&id];
-                    for new in new_nodes {
-                        self.insert_node_before(old_node_id, new);
+                    for new_id in new_nodes {
+                        self.insert_node_before(old_node_id, new_id);
+                         self.dirty_nodes.insert(new_id);
                     }
                     self.remove_node(old_node_id);
                 }
@@ -409,16 +490,44 @@ impl VDom {
 
                     for new_id in new_nodes {
                         self.insert_node_before(old_node_id, new_id);
+                         self.dirty_nodes.insert(new_id);
                     }   
 
                     self.remove_node(old_node_id);
                 }
-                
-                _ => {
-                    todo!("unimplemented mutation {:?}", edit);
+
+                dioxus::core::Mutation::InsertAfter { id, m } => {
+                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let old_node_id = self.element_id_mapping[&id];
+                    for new_id in new_nodes.into_iter().rev() {
+                        self.insert_node_after(old_node_id, new_id);
+                        self.dirty_nodes.insert(new_id);
+                    }
                 }
+
+                dioxus::core::Mutation::InsertBefore { id, m } => {
+                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let old_node_id = self.element_id_mapping[&id];
+                    for new_id in new_nodes {
+                        self.insert_node_before(old_node_id, new_id);
+                        self.dirty_nodes.insert(new_id);
+                    }
+                }
+
+                dioxus::core::Mutation::Remove { id } => {
+                    let node_id = self.element_id_mapping[&id];
+                    self.remove_node(node_id);
+                }
+
+                dioxus::core::Mutation::PushRoot { id } => {
+                    let node_id = self.element_id_mapping[&id];
+                    self.stack.push(node_id);
+                }
+
+               
             }
         }
+
     }
 
     /// useful for debugging
@@ -813,6 +922,7 @@ impl DomEventLoop {
         dioxus_hot_reload::connect(move |msg| {
             let _ = hot_reload_tx.send(msg);
         });
+
         
         std::thread::spawn({
             let render_vdom = render_vdom.clone();
@@ -854,6 +964,9 @@ impl DomEventLoop {
 
                         let mutations = vdom.render_immediate();
                         render_vdom.lock().unwrap().apply_mutations(mutations);
+
+                       
+                        
                         
                         event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
                     }
@@ -874,6 +987,7 @@ impl DomEventLoop {
     pub fn get_paint_info(&mut self) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         let mut vdom = self.vdom.lock().unwrap();
         self.renderer.calculate_layout(&mut vdom);
+        self.renderer.compute_rects(&mut vdom);
         self.renderer.get_paint_info(&vdom)
     }
 

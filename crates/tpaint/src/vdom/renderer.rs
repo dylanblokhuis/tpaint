@@ -1,5 +1,5 @@
 use epaint::{
-    text::{FontDefinitions},
+    text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
     vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TessellationOptions,
     TextureId, TextureManager, Vec2, WHITE_UV,
@@ -62,6 +62,12 @@ impl Renderer {
                 self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
             ),
         };
+
+        if vdom.dirty_nodes.is_empty() {
+            return;
+        }
+        log::debug!("Nodes dirty {}", vdom.dirty_nodes.len());
+        log::debug!("Calculating layout for {} nodes", vdom.nodes.len());
 
         // rect layout pass
         {
@@ -141,6 +147,9 @@ impl Renderer {
                 true
             });
 
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout rect layout pass (taffy)")
+                    .entered();
             taffy
                 .compute_layout(
                     vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
@@ -170,6 +179,8 @@ impl Renderer {
                 return true;
             });
 
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout text layout (taffy)").entered();
             taffy
                 .compute_layout(
                     vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
@@ -224,58 +235,62 @@ impl Renderer {
                 taffy.set_style(taffy_id, style).unwrap();
             }
 
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout scroll pass (taffy)").entered();
+
             taffy
                 .compute_layout(root_taffy_id, available_space)
                 .unwrap();
         }
 
+        vdom.dirty_nodes.clear();
+    }
+
+    /// will compute the rects for all the nodes using the final computed layout
+    #[tracing::instrument(skip_all, name = "Renderer::compute_rects")]
+    pub fn compute_rects(&mut self, vdom: &mut VDom) {
         // Now we do a pass so we cache the computed layout in our VDom tree
-        {
-            let _guard =
-                tracing::trace_span!("Renderer::calculate_layout cache layout pass").entered();
+        let root_id = vdom.get_root_id();
+        vdom.traverse_tree_mut_with_parent_and_data(
+            root_id,
+            None,
+            &Vec2::ZERO,
+            &mut |node, parent, parent_location_offset| {
+                let taffy_id = node.styling.node.unwrap();
+                let layout = self.taffy.layout(taffy_id).unwrap();
 
-            let root_id = vdom.get_root_id();
-            vdom.traverse_tree_mut_with_parent_and_data(
-                root_id,
-                None,
-                &Vec2::ZERO,
-                &mut |node, parent, parent_location_offset| {
-                    let taffy_id = node.styling.node.unwrap();
-                    let layout = self.taffy.layout(taffy_id).unwrap();
+                let parent_scroll_offset = parent
+                    .map(|p| {
+                        let scroll = p.scroll;
+                        let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
 
-                    let parent_scroll_offset = parent
-                        .map(|p| {
-                            let scroll = p.scroll;
-                            let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
+                        Vec2::new(
+                            scroll
+                                .x
+                                .min(p.natural_content_size.width - parent_layout.size.width)
+                                .max(0.0),
+                            scroll
+                                .y
+                                .min(p.natural_content_size.height - parent_layout.size.height)
+                                .max(0.0),
+                        )
+                    })
+                    .unwrap_or_default();
 
-                            Vec2::new(
-                                scroll
-                                    .x
-                                    .min(p.natural_content_size.width - parent_layout.size.width)
-                                    .max(0.0),
-                                scroll
-                                    .y
-                                    .min(p.natural_content_size.height - parent_layout.size.height)
-                                    .max(0.0),
-                            )
-                        })
-                        .unwrap_or_default();
+                let location = *parent_location_offset - parent_scroll_offset
+                    + epaint::Vec2::new(layout.location.x, layout.location.y);
 
-                    let location = *parent_location_offset - parent_scroll_offset
-                        + epaint::Vec2::new(layout.location.x, layout.location.y);
+                node.computed_rect = epaint::Rect {
+                    min: location.to_pos2(),
+                    max: Pos2 {
+                        x: location.x + layout.size.width,
+                        y: location.y + layout.size.height,
+                    },
+                };
 
-                    node.computed_rect = epaint::Rect {
-                        min: location.to_pos2(),
-                        max: Pos2 {
-                            x: location.x + layout.size.width,
-                            y: location.y + layout.size.height,
-                        },
-                    };
-
-                    (true, location)
-                },
-            );
-        }
+                (true, location)
+            },
+        );
     }
 
     #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
@@ -687,7 +702,7 @@ impl Renderer {
             node.attrs.get("value").unwrap().clone(),
             parent.text.font.clone(),
             parent.text.color,
-            node.computed_rect.size().x + 0.5,
+            node.computed_rect.size().x + 1.0,
         );
 
         let shape = Shape::galley(node.computed_rect.min, galley);

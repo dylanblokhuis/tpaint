@@ -10,11 +10,7 @@ pub fn app(cx: Scope) -> Element {
           class: "my-40",
 
           Input {
-            name: "input",
-            default_value: "",
-            onchange: |value| {
-              println!("Input value: {}", value);
-            },
+
           }
         }
 
