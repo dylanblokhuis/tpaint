@@ -1359,7 +1359,11 @@ impl DomEventLoop {
 
             self.send_event_to_element(focused, "blur", Arc::new(events::Event::Blur(Blur)));
         }
-        self.vdom.lock().unwrap().focused = Some(node_id);
+        {
+            let mut vdom = self.vdom.lock().unwrap();
+            vdom.focused = Some(node_id);
+            vdom.dirty_nodes.insert(node_id);
+        }
         self.send_event_to_element(node_id, "focus", Arc::new(events::Event::Focus(Focus)));
         Some(node_id)
     }
