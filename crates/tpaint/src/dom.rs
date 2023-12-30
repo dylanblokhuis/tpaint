@@ -13,7 +13,7 @@ use super::tailwind::{StyleState, Tailwind};
 pub struct NodeContext {
     pub tag: Arc<str>,
     pub parent_id: Option<NodeId>,
-    pub attrs: FxHashMap<Arc<str>, String>,
+    pub attrs: FxHashMap<Arc<str>, Arc<str>>,
     pub styling: Tailwind,
     pub scroll: Vec2,
     pub natural_content_size: Size<f32>,
@@ -27,6 +27,8 @@ pub struct Dom {
     pub element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
+    pub hovered: Vec<NodeId>,
+    pub focused: Option<NodeId>,
 }
 
 impl Dom {
@@ -67,6 +69,8 @@ impl Dom {
             element_id_mapping,
             common_tags_and_attr_keys,
             event_listeners: Default::default(),
+            focused: None,
+            hovered: vec![],
         }
     }
 
@@ -133,7 +137,6 @@ impl Dom {
         current_node_id
     }
 
-    #[tracing::instrument(skip_all, name = "Dom::get_tag_or_attr_key")]
     pub fn get_tag_or_attr_key(&mut self, key: &str) -> Arc<str> {
         if let Some(s) = self.common_tags_and_attr_keys.get(key) {
             s.clone()
@@ -145,7 +148,6 @@ impl Dom {
         }
     }
 
-    #[tracing::instrument(skip_all, name = "Dom::create_template_node")]
     fn create_template_node(&mut self, node: &TemplateNode, parent_id: Option<NodeId>) -> NodeId {
         match *node {
             TemplateNode::Element {
@@ -161,7 +163,7 @@ impl Dom {
                         .iter()
                         .filter_map(|val| {
                             if let TemplateAttribute::Static { name, value, .. } = val {
-                                Some((self.get_tag_or_attr_key(name), value.to_string()))
+                                Some((self.get_tag_or_attr_key(name), (*value).into()))
                             } else {
                                 None
                             }
@@ -185,8 +187,8 @@ impl Dom {
             }
             TemplateNode::Text { text } => {
                 let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("class"), "max-w-full".to_string());
-                attrs.insert(self.get_tag_or_attr_key("value"), text.to_string());
+                attrs.insert(self.get_tag_or_attr_key("class"), "max-w-full".into());
+                attrs.insert(self.get_tag_or_attr_key("value"), text.into());
                 let mut node = NodeContext {
                     parent_id,
                     tag: "text".into(),
@@ -203,8 +205,7 @@ impl Dom {
             }
 
             TemplateNode::Dynamic { .. } => {
-                let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("class"), String::new());
+                let attrs = FxHashMap::default();
 
                 let node_id = self
                     .tree
@@ -226,8 +227,7 @@ impl Dom {
             }
 
             TemplateNode::DynamicText { .. } => {
-                let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("value"), String::new());
+                let attrs = FxHashMap::default();
 
                 let node_id = self
                     .tree
@@ -333,11 +333,11 @@ impl Dom {
                         node.attrs.insert(
                             key,
                             match value {
-                                BorrowedAttributeValue::Int(val) => val.to_string(),
-                                BorrowedAttributeValue::Bool(val) => val.to_string(),
-                                BorrowedAttributeValue::Float(val) => val.to_string(),
-                                BorrowedAttributeValue::Text(val) => val.to_string(),
-                                BorrowedAttributeValue::None => "".to_string(),
+                                BorrowedAttributeValue::Int(val) => (val.to_string()).into(),
+                                BorrowedAttributeValue::Bool(val) => (val.to_string()).into(),
+                                BorrowedAttributeValue::Float(val) => (val.to_string()).into(),
+                                BorrowedAttributeValue::Text(val) => val.into(),
+                                BorrowedAttributeValue::None => "".into(),
                                 BorrowedAttributeValue::Any(_) => unimplemented!(),
                             },
                         );
@@ -345,7 +345,7 @@ impl Dom {
                 }
                 dioxus::core::Mutation::CreateTextNode { value, id } => {
                     let mut attrs = FxHashMap::default();
-                    attrs.insert(self.get_tag_or_attr_key("value"), value.to_string());
+                    attrs.insert(self.get_tag_or_attr_key("value"), value.into());
 
                     let node = NodeContext {
                         parent_id: None,
@@ -370,13 +370,13 @@ impl Dom {
                     let key = self.get_tag_or_attr_key("value");
                     self.element_id_mapping.insert(id, node_id);
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
-                    node.attrs.insert(key, value.to_string());
+                    node.attrs.insert(key, value.into());
                 }
                 dioxus::core::Mutation::SetText { value, id } => {
                     let node_id = self.element_id_mapping[&id];
                     let key = self.get_tag_or_attr_key("value");
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
-                    node.attrs.insert(key, value.to_string());
+                    node.attrs.insert(key, value.into());
                 }
 
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
@@ -428,7 +428,6 @@ impl Dom {
     }
 
     /// Clone node and its children, they all get new ids
-    #[tracing::instrument(skip_all, name = "Dom::clone_node")]
     pub fn clone_node(&mut self, node_id: NodeId, parent_id: NodeId) -> NodeId {
         let (tag, attrs, styling) = {
             let ctx = self.tree.get_node_context_mut(node_id).unwrap();
@@ -461,7 +460,6 @@ impl Dom {
         self.element_id_mapping[&ElementId(0)]
     }
 
-    #[tracing::instrument(skip_all, name = "Dom::remove_node")]
     pub fn remove_node(&mut self, id: NodeId) {
         self.tree.remove(id).unwrap();
     }
@@ -479,13 +477,13 @@ impl Dom {
             .get_style(class, &StyleState::default())
     }
 
+    /// Return true to continue traversal, false to stop
     pub fn traverse_tree(
         &mut self,
         id: NodeId,
-        callback: &mut impl FnMut((NodeId, &mut NodeContext)) -> bool,
+        callback: &mut impl FnMut(&mut Dom, NodeId) -> bool,
     ) {
-        let node: &mut NodeContext = self.tree.get_node_context_mut(id).unwrap();
-        let should_continue = callback((id, node));
+        let should_continue = callback(self, id);
         if !should_continue {
             return;
         }
@@ -498,23 +496,15 @@ impl Dom {
         &mut self,
         id: NodeId,
         parent_id: Option<NodeId>,
-        callback: &mut impl FnMut(
-            (NodeId, &mut NodeContext),
-            Option<(NodeId, &mut NodeContext)>,
-        ) -> bool,
+        callback: &mut impl FnMut(&mut Dom, NodeId, Option<NodeId>) -> bool,
     ) {
         if let Some(parent_id) = parent_id {
-            let [node, parent] = self
-                .tree
-                .get_disjoint_node_context_mut([id, parent_id])
-                .unwrap();
-            let should_continue = callback((id, node), Some((parent_id, parent)));
+            let should_continue = callback(self, id, Some(parent_id));
             if !should_continue {
                 return;
             }
         } else {
-            let node = self.tree.get_node_context_mut(id).unwrap();
-            let should_continue = callback((id, node), None);
+            let should_continue = callback(self, id, None);
             if !should_continue {
                 return;
             }
@@ -530,23 +520,17 @@ impl Dom {
         id: NodeId,
         parent_id: Option<NodeId>,
         data: &T,
-        callback: &mut impl FnMut(&mut NodeContext, Option<&mut NodeContext>, &T) -> (bool, T),
+        callback: &mut impl FnMut(&mut Dom, NodeId, Option<NodeId>, &T) -> (bool, T),
     ) {
         let data = if let Some(parent_id) = parent_id {
-            let [node, parent] = self
-                .tree
-                .get_disjoint_node_context_mut([id, parent_id])
-                .unwrap();
-
-            let (should_continue, new_data) = callback(node, Some(parent), data);
+            let (should_continue, new_data) = callback(self, id, Some(parent_id), data);
             if !should_continue {
                 return;
             }
 
             new_data
         } else {
-            let node = self.tree.get_node_context_mut(id).unwrap();
-            let (should_continue, new_data) = callback(node, None, data);
+            let (should_continue, new_data) = callback(self, id, None, data);
             if !should_continue {
                 return;
             }

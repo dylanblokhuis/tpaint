@@ -18,6 +18,16 @@ fn app(cx: Scope) -> Element {
     }
 }
 
+pub fn run_calculate_layout(app: &mut DomEventLoop) {
+    let mut vdom = app.vdom.lock().unwrap();
+    app.renderer.calculate_layout(&mut vdom);
+}
+
+pub fn run_paint_info(app: &mut DomEventLoop) {
+    let vdom = app.vdom.lock().unwrap();
+    let _ = app.renderer.get_paint_info(&vdom);
+}
+
 pub fn criterion_benchmark(_c: &mut Criterion) {
     let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
     let window = WindowBuilder::new()
@@ -34,13 +44,13 @@ pub fn criterion_benchmark(_c: &mut Criterion) {
         (),
     );
 
-    // c.bench_function("calculate_layout", |b| {
-    //     b.iter(|| run_calculate_layout(black_box(&mut app)))
-    // });
+    c.bench_function("calculate_layout", |b| {
+        b.iter(|| run_calculate_layout(black_box(&mut app)))
+    });
 
-    // c.bench_function("get_paint_info", |b| {
-    //     b.iter(|| run_paint_info(black_box(&mut app)))
-    // });
+    c.bench_function("get_paint_info", |b| {
+        b.iter(|| run_paint_info(black_box(&mut app)))
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);

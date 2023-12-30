@@ -6,8 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winit = "0.28.6"
-dioxus = { version = "0.4.0", default-features = false, features = ["macro", "hooks"] }
+winit = "0.28"
+dioxus = { version = "0.4.3", default-features = false, features = [
+    "macro",
+    "hooks",
+] }
 tpaint = { path = "../../crates/tpaint" }
 tpaint_glow = { path = "../../crates/tpaint_glow" }
 glutin = "0.30.10"
@@ -17,10 +20,6 @@ glow = "0.12.3"
 log = "0.4.20"
 simple_logger = "4.2.0"
 example_ui = { path = "../example_ui" }
-tracing-subscriber = { version = "0.3.17", optional = true }
-tracing-tracy = { version = "0.10.3", optional = true }
-tracing = { version = "0.1", optional = true }
 
 [features]
-tracy = ["dep:tracing-subscriber", "dep:tracing-tracy", "dep:tracing"]
 hot-reload = ["tpaint/hot-reload"]

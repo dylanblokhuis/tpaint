@@ -16,6 +16,14 @@ fn main() {
     #[cfg(feature = "hot-reload")]
     dioxus_hot_reload::hot_reload_init!();
 
+    #[cfg(feature = "tracy")]
+    let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    #[cfg(feature = "tracy")]
+    use tracing_subscriber::layer::SubscriberExt;
+    #[cfg(feature = "tracy")]
+    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(chrome_layer))
+        .expect("set up the subscriber");
+
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
     let window = winit::window::WindowBuilder::new()
         .with_decorations(true)
@@ -118,10 +126,12 @@ fn main() {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: wgpu::StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
                 });
 
                 renderer.render(&mut rpass, &primitives, screen)
@@ -134,7 +144,6 @@ fn main() {
         match event {
             winit::event::Event::RedrawEventsCleared if cfg!(target_os = "windows") => redraw(),
             winit::event::Event::RedrawRequested(_) if !cfg!(target_os = "windows") => redraw(),
-
             winit::event::Event::WindowEvent {
                 event: ref window_event,
                 ..
@@ -143,7 +152,7 @@ fn main() {
                     window_event,
                     WindowEvent::CloseRequested | WindowEvent::Destroyed
                 ) {
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
+                    return;
                 }
 
                 if let winit::event::WindowEvent::Resized(physical_size) = &window_event {

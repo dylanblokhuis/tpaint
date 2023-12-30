@@ -69,8 +69,14 @@ impl Default for ScrollbarStyling {
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
+pub struct TailwindCache {
+    pub class: Option<Arc<str>>,
+    pub state: StyleState,
+}
+
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct Tailwind {
-    pub node: Option<taffy::tree::NodeId>,
+    pub cache: TailwindCache,
     pub texture_id: Option<epaint::TextureId>,
     pub background_color: Color32,
     pub border: Border,
@@ -78,51 +84,20 @@ pub struct Tailwind {
     pub scrollbar: ScrollbarStyling,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub struct StyleState {
     pub hovered: bool,
     pub focused: bool,
 }
 
 impl Tailwind {
-    #[tracing::instrument(skip_all, name = "Tailwind::set_styling")]
-    pub fn set_styling(
-        &mut self,
-        taffy: &mut TaffyTree,
-        class: &str,
-        state: &StyleState,
-    ) -> &mut Self {
-        let classes = class.split_whitespace();
-
+    pub fn set_styling(&mut self, class: &str, state: &StyleState) -> Style {
         // todo: perhaps find a way to this lazily
-        let mut style = Style::default();
         self.background_color = Default::default();
         self.border = Default::default();
         self.text = Default::default();
 
-        for class in classes {
-            self.handle_class(&mut style, &COLORS, class);
-            if state.hovered {
-                if let Some(class) = class.strip_prefix("hover:") {
-                    self.handle_class(&mut style, &COLORS, class);
-                }
-            }
-            if state.focused {
-                if let Some(class) = class.strip_prefix("focus:") {
-                    self.handle_class(&mut style, &COLORS, class);
-                }
-            }
-        }
-
-        if let Some(node) = self.node {
-            if &style != taffy.style(node).unwrap() {
-                taffy.set_style(node, style).unwrap();
-            }
-        } else {
-            self.node = Some(taffy.new_leaf(style).unwrap());
-        }
-
-        self
+        self.get_style(class, state)
     }
 
     pub fn get_style(&mut self, class: &str, state: &StyleState) -> Style {
@@ -146,10 +121,9 @@ impl Tailwind {
         layout_style
     }
 
-    #[tracing::instrument(skip_all, name = "Tailwind::set_texture")]
     pub fn set_texture(
         &mut self,
-        taffy: &mut TaffyTree,
+        current_style: &mut Style,
         src: &str,
         tex_manager: &mut TextureManager,
     ) {
@@ -160,7 +134,7 @@ impl Tailwind {
         path.push(src);
 
         if self.texture_id.is_some() {
-            self.set_aspect_ratio_layout(taffy, tex_manager);
+            self.set_aspect_ratio_layout(current_style, tex_manager);
             return;
         }
 
@@ -207,21 +181,14 @@ impl Tailwind {
         };
 
         self.texture_id = Some(id);
-        self.set_aspect_ratio_layout(taffy, tex_manager);
+        self.set_aspect_ratio_layout(current_style, tex_manager);
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::set_aspect_ratio_layout")]
-    fn set_aspect_ratio_layout(&self, taffy: &mut TaffyTree, tex_manager: &TextureManager) {
+    fn set_aspect_ratio_layout(&self, style: &mut Style, tex_manager: &TextureManager) {
         let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
         let image_size = [meta.size[0] as f32, meta.size[1] as f32];
         let aspect_ratio = image_size[0] / image_size[1];
-        let mut style = taffy
-            .style(
-                self.node
-                    .expect("set_image_default_sizing called before set_styling was called"),
-            )
-            .unwrap()
-            .clone();
 
         if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
             style.size.width = Dimension::Length(image_size[0]);
@@ -243,55 +210,47 @@ impl Tailwind {
             };
             style.size.width = Dimension::Length(new_height * aspect_ratio);
         }
-
-        if &style != taffy.style(self.node.unwrap()).unwrap() {
-            taffy.set_style(self.node.unwrap(), style).unwrap();
-        }
     }
 
-    pub fn get_font_galley(
-        &self,
-        text: &str,
-        taffy: &TaffyTree,
-        fonts: &Fonts,
-        parent: &Tailwind,
-    ) -> Arc<Galley> {
-        let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
+    // pub fn get_font_galley(
+    //     &self,
+    //     text: &str,
+    //     taffy: &TaffyTree,
+    //     fonts: &Fonts,
+    //     parent: &Tailwind,
+    // ) -> Arc<Galley> {
+    //     let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
 
-        fonts.layout(
-            text.to_string(),
-            parent.text.font.clone(),
-            parent.text.color,
-            max_width,
-        )
-    }
+    //     fonts.layout(
+    //         text.to_string(),
+    //         parent.text.font.clone(),
+    //         parent.text.color,
+    //         max_width,
+    //     )
+    // }
 
-    #[tracing::instrument(skip_all, name = "Tailwind::set_text_styling")]
-    pub fn set_text_styling(
-        &mut self,
-        text: &str,
-        taffy: &mut TaffyTree,
-        fonts: &Fonts,
-        parent: &Tailwind,
-    ) {
-        let galley = self.get_font_galley(text, taffy, fonts, parent);
-        let size = galley.size();
-        let style = Style {
-            size: Size {
-                width: Dimension::Length(size.x),
-                height: Dimension::Length(size.y),
-            },
+    // #[tracing::instrument(skip_all, name = "Tailwind::set_text_styling")]
+    // pub fn get_text_styling(
+    //     &mut self,
+    //     text: &str,
+    //     taffy: &mut TaffyTree,
+    //     fonts: &Fonts,
+    //     parent: &Tailwind,
+    // ) -> Style {
+    //     let galley = self.get_font_galley(text, taffy, fonts, parent);
+    //     let size = galley.size();
+    //     let style = Style {
+    //         size: Size {
+    //             width: Dimension::Length(size.x),
+    //             height: Dimension::Length(size.y),
+    //         },
 
-            ..Default::default()
-        };
+    //         ..Default::default()
+    //     };
 
-        if &style != taffy.style(self.node.unwrap()).unwrap() {
-            taffy.set_style(self.node.unwrap(), style).unwrap();
-        }
-    }
+    //     style
+    // }
 
-    #[tracing::instrument(skip_all, name = "Tailwind::handle_class")]
-    #[inline]
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {
         if class == "flex-col" {
             style.display = Display::Flex;

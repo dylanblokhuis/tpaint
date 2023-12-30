@@ -27,15 +27,10 @@ pub fn app(cx: Scope) -> Element {
                 }
             }
 
-            (0..1000).map(|_| rsx! {
+            (0..10).map(|_| rsx! {
                 view {
                     class: "w-full h-50 p-10 bg-blue-900",
 
-                    view {
-                        class: "w-50 h-50 bg-red-500 items-center justify-center",
-
-                        "Click me"
-                    }
                 }
             })
         }

@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use simple_logger::SimpleLogger;
-use tpaint::DomEventLoopV2;
+use tpaint::DomEventLoop;
 use tpaint_glow::painter::Painter;
 
 #[cfg(feature = "hot-reload")]
@@ -168,7 +168,7 @@ fn main() {
     let (gl_window, gl) = create_display(&event_loop);
     let gl = std::sync::Arc::new(gl);
 
-    let mut app = DomEventLoopV2::spawn(
+    let mut app = DomEventLoop::spawn(
         app::app,
         gl_window.window().inner_size(),
         gl_window.window().scale_factor() as f32,

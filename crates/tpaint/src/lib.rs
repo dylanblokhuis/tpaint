@@ -69,9 +69,10 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
-            pub const cursor: AttributeDescription = ("cursor", None, false);
-            pub const cursor_visible: AttributeDescription = ("cursor_visible", None, false);
-            pub const selection_start: AttributeDescription = ("selection_start", None, false);
+
+            // pub const text_cursor: AttributeDescription = ("cursor", None, false);
+            // pub const text_cursor_visible: AttributeDescription = ("cursor_visible", None, false);
+            // pub const selection_start: AttributeDescription = ("selection_start", None, false);
         }
 
         #[cfg(feature = "images")]

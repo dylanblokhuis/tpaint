@@ -1,7 +1,19 @@
-use epaint::{text::FontDefinitions, textures::TextureOptions, Fonts, TextureManager};
+use std::time::Instant;
 
-use taffy::TaffyTree;
+use epaint::{
+    text::FontDefinitions,
+    textures::{TextureOptions, TexturesDelta},
+    ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TextureId, TextureManager,
+    Vec2, WHITE_UV,
+};
+
+use taffy::{Overflow, PrintTree, Size, Style};
 use winit::dpi::PhysicalSize;
+
+use crate::{
+    dom::{Dom, NodeContext},
+    tailwind::{StyleState, TailwindCache},
+};
 
 #[derive(Clone, Debug)]
 pub struct ScreenDescriptor {
@@ -12,7 +24,7 @@ pub struct Renderer {
     pub screen_descriptor: ScreenDescriptor,
     pub fonts: Fonts,
     pub tex_manager: TextureManager,
-    pub taffy: TaffyTree,
+    pub shapes: Vec<ClippedShape>,
 }
 
 impl Renderer {
@@ -39,148 +51,143 @@ impl Renderer {
             },
             fonts,
             tex_manager,
-            taffy: TaffyTree::new(),
+            shapes: Vec::new(),
         }
     }
 
-    // #[tracing::instrument(skip_all, name = "Renderer::calculate_layout")]
-    // pub fn calculate_layout(&mut self, vdom: &mut Dom) {
-    //     let root_id = vdom.get_root_id();
-    //     let taffy = &mut self.taffy;
-    //     let available_space = Size {
-    //         width: taffy::style::AvailableSpace::Definite(
-    //             self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
-    //         ),
-    //         height: taffy::style::AvailableSpace::Definite(
-    //             self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
-    //         ),
-    //     };
+    #[tracing::instrument(skip_all, name = "Renderer::calculate_layout")]
+    pub fn calculate_layout(&mut self, dom: &mut Dom) {
+        let root_id = dom.get_root_id();
+        let available_space = Size {
+            width: taffy::style::AvailableSpace::Definite(
+                self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
+            ),
+            height: taffy::style::AvailableSpace::Definite(
+                self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
+            ),
+        };
 
-    //     if vdom.dirty_nodes.is_empty() {
-    //         return;
-    //     }
-    //     log::debug!("Nodes dirty {}", vdom.dirty_nodes.len());
-    //     log::debug!("Calculating layout for {} nodes", vdom.nodes.len());
+        // rect layout pass
+        {
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout rect layout pass").entered();
 
-    //     // rect layout pass
-    //     {
-    //         let _guard =
-    //             tracing::trace_span!("Renderer::calculate_layout rect layout pass").entered();
+            dom.tree.get_node_context_mut(root_id).unwrap().attrs.insert(
+                "class".into(),
+                "w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default".into(),
+            );
 
-    //         vdom.nodes.get_mut(root_id).unwrap().attrs.insert(
-    //             "class".into(),
-    //             "w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default".into(),
-    //         );
+            // let hovered = vdom.hovered.clone();
+            // let focused = vdom.focused;
 
-    //         let hovered = vdom.hovered.clone();
-    //         let focused = vdom.focused;
-    //         vdom.traverse_tree_mut(root_id, &mut |node| {
-    //             let style_state = StyleState {
-    //                 hovered: hovered.contains(&node.id),
-    //                 focused: focused.map(|id| id == node.id).unwrap_or(false),
-    //             };
+            dom.traverse_tree(root_id, &mut |dom, id| {
+                let node = dom.tree.get_node_context_mut(id).unwrap();
+                let style_state = StyleState {
+                    hovered: dom.hovered.contains(&id),
+                    focused: dom.focused.map(|id2| id2 == id).unwrap_or(false),
+                };
 
-    //             match &(*node.tag) {
-    //                 #[cfg(feature = "images")]
-    //                 "image" => {
-    //                     node.styling
-    //                         .set_styling(
-    //                             taffy,
-    //                             node.attrs.get("class").unwrap_or(&String::new()),
-    //                             &style_state,
-    //                         )
-    //                         .set_texture(
-    //                             taffy,
-    //                             node.attrs.get("src").unwrap_or(&String::new()),
-    //                             &mut self.tex_manager,
-    //                         );
-    //                 }
-    //                 "view" => {
-    //                     node.styling.set_styling(
-    //                         taffy,
-    //                         node.attrs.get("class").unwrap_or(&String::new()),
-    //                         &style_state,
-    //                     );
-    //                 }
+                let class = node.attrs.get("class");
+                let styling_hash = TailwindCache {
+                    class: class.cloned(),
+                    state: style_state.clone(),
+                };
 
-    //                 "text" => {
-    //                     node.styling.set_styling(taffy, "w-full", &style_state);
-    //                 }
+                if node.styling.cache == styling_hash {
+                    return true;
+                }
+                node.styling.cache = styling_hash;
 
-    //                 _ => {
-    //                     node.styling.set_styling(
-    //                         taffy,
-    //                         node.attrs.get("class").unwrap_or(&String::new()),
-    //                         &style_state,
-    //                     );
-    //                 }
-    //             }
+                let style = match &(*node.tag) {
+                    #[cfg(feature = "images")]
+                    "image" => {
+                        let mut style = node
+                            .styling
+                            .set_styling(class.unwrap_or(&"".into()), &style_state);
 
-    //             true
-    //         });
+                        node.styling.set_texture(
+                            &mut style,
+                            node.attrs.get("src").unwrap_or(&"".into()),
+                            &mut self.tex_manager,
+                        );
+                        style
+                    }
+                    "view" => node
+                        .styling
+                        .set_styling(class.unwrap_or(&"".into()), &style_state),
 
-    //         // set all the newly created leaf nodes to their parents
-    //         vdom.traverse_tree(root_id, &mut |node| {
-    //             let parent_id = node.styling.node.unwrap();
-    //             let mut child_ids = [taffy::prelude::NodeId::new(0); MAX_CHILDREN];
-    //             let mut count = 0; // Keep track of how many child_ids we've filled
+                    "text" => node.styling.set_styling("w-full", &style_state),
 
-    //             for (i, child) in node.children.iter().enumerate() {
-    //                 if i >= MAX_CHILDREN {
-    //                     log::error!("Max children reached for node {:?}", node);
-    //                     break;
-    //                 }
+                    _ => unreachable!(),
+                };
 
-    //                 let node = vdom.nodes.get(*child).unwrap();
-    //                 child_ids[i] = node.styling.node.unwrap();
-    //                 count += 1;
-    //             }
+                let old_style = dom.tree.style(id).unwrap();
+                if old_style != &style {
+                    dom.tree.set_style(id, style).unwrap();
+                }
 
-    //             taffy.set_children(parent_id, &child_ids[..count]).unwrap(); // Only pass the filled portion
-    //             true
-    //         });
+                true
+            });
+        }
 
-    //         let _guard =
-    //             tracing::trace_span!("Renderer::calculate_layout rect layout pass (taffy)")
-    //                 .entered();
-    //         taffy
-    //             .compute_layout(
-    //                 vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
-    //                 available_space,
-    //             )
-    //             .unwrap();
-    //     }
+        {
+            let _guard = tracing::trace_span!("taffy compute layout").entered();
+            dom.tree.compute_layout(root_id, available_space).unwrap();
+        }
 
-    //     // text pass, todo: DRY this
-    //     {
-    //         let _guard =
-    //             tracing::trace_span!("Renderer::calculate_layout text layout pass").entered();
+        // text pass
+        {
+            let _guard =
+                tracing::trace_span!("Renderer::calculate_layout text layout pass").entered();
 
-    //         vdom.traverse_tree_mut_with_parent(root_id, None, &mut |node, parent| {
-    //             match &*node.tag {
-    //                 "text" => {
-    //                     node.styling.set_text_styling(
-    //                         node.attrs.get("value").unwrap_or(&String::new()),
-    //                         taffy,
-    //                         &self.fonts,
-    //                         &parent.unwrap().styling,
-    //                     );
-    //                 }
-    //                 _ => {}
-    //             }
+            dom.traverse_tree_with_parent(root_id, None, &mut |dom, id, parent_id| {
+                let Some(parent_id) = parent_id else {
+                    return true;
+                };
+                let max_width = dom.tree.layout(parent_id).unwrap().size.width;
+                let [node, parent] = dom
+                    .tree
+                    .get_disjoint_node_context_mut([id, parent_id])
+                    .unwrap();
 
-    //             return true;
-    //         });
+                let style = match &*node.tag {
+                    "text" => {
+                        let galley = self.fonts.layout(
+                            node.attrs.get("value").unwrap_or(&"".into()).to_string(),
+                            parent.styling.text.font.clone(),
+                            parent.styling.text.color,
+                            max_width,
+                        );
+                        let size = galley.size();
+                        Style {
+                            size: Size {
+                                width: taffy::Dimension::Length(size.x),
+                                height: taffy::Dimension::Length(size.y),
+                            },
 
-    //         let _guard =
-    //             tracing::trace_span!("Renderer::calculate_layout text layout (taffy)").entered();
-    //         taffy
-    //             .compute_layout(
-    //                 vdom.nodes.get(root_id).unwrap().styling.node.unwrap(),
-    //                 available_space,
-    //             )
-    //             .unwrap();
-    //     }
+                            ..Default::default()
+                        }
+                    }
+                    _ => {
+                        return true;
+                    }
+                };
+
+                let old_style = dom.tree.style(id).unwrap();
+                if old_style != &style {
+                    dom.tree.set_style(id, style).unwrap();
+                }
+                true
+            });
+        }
+
+        {
+            let _guard = tracing::trace_span!("taffy compute layout").entered();
+            dom.tree.compute_layout(root_id, available_space).unwrap();
+        }
+
+        self.compute_rects(dom);
+    }
 
     //     // generate natural content size for scrollable nodes
     //     {
@@ -237,54 +244,55 @@ impl Renderer {
     //     }
 
     //     vdom.dirty_nodes.clear();
-    // }
 
-    // /// will compute the rects for all the nodes using the final computed layout
-    // #[tracing::instrument(skip_all, name = "Renderer::compute_rects")]
-    // pub fn compute_rects(&mut self, vdom: &mut VDom) {
-    //     // Now we do a pass so we cache the computed layout in our VDom tree
-    //     let root_id = vdom.get_root_id();
-    //     vdom.traverse_tree_mut_with_parent_and_data(
-    //         root_id,
-    //         None,
-    //         &Vec2::ZERO,
-    //         &mut |node, parent, parent_location_offset| {
-    //             let taffy_id = node.styling.node.unwrap();
-    //             let layout = self.taffy.layout(taffy_id).unwrap();
+    /// will compute the rects for all the nodes using the final computed layout
+    #[tracing::instrument(skip_all, name = "Renderer::compute_rects")]
+    pub fn compute_rects(&mut self, dom: &mut Dom) {
+        // Now we do a pass so we cache the computed layout in our VDom tree
+        let root_id = dom.get_root_id();
+        dom.traverse_tree_mut_with_parent_and_data(
+            root_id,
+            None,
+            &Vec2::ZERO,
+            &mut |dom, id, parent_id, parent_location_offset| {
+                let layout = dom.tree.layout(id).unwrap();
 
-    //             let parent_scroll_offset = parent
-    //                 .map(|p| {
-    //                     let scroll = p.scroll;
-    //                     let parent_layout = self.taffy.layout(p.styling.node.unwrap()).unwrap();
+                let parent_scroll_offset = parent_id
+                    .map(|parent_id| {
+                        let parent_layout = dom.tree.layout(parent_id).unwrap();
+                        let parent = dom.tree.get_node_context(parent_id).unwrap();
+                        let scroll = parent.scroll;
 
-    //                     Vec2::new(
-    //                         scroll
-    //                             .x
-    //                             .min(p.natural_content_size.width - parent_layout.size.width)
-    //                             .max(0.0),
-    //                         scroll
-    //                             .y
-    //                             .min(p.natural_content_size.height - parent_layout.size.height)
-    //                             .max(0.0),
-    //                     )
-    //                 })
-    //                 .unwrap_or_default();
+                        Vec2::new(
+                            scroll
+                                .x
+                                .min(parent.natural_content_size.width - parent_layout.size.width)
+                                .max(0.0),
+                            scroll
+                                .y
+                                .min(parent.natural_content_size.height - parent_layout.size.height)
+                                .max(0.0),
+                        )
+                    })
+                    .unwrap_or_default();
 
-    //             let location = *parent_location_offset - parent_scroll_offset
-    //                 + epaint::Vec2::new(layout.location.x, layout.location.y);
+                let location = *parent_location_offset - parent_scroll_offset
+                    + epaint::Vec2::new(layout.location.x, layout.location.y);
 
-    //             node.computed_rect = epaint::Rect {
-    //                 min: location.to_pos2(),
-    //                 max: Pos2 {
-    //                     x: location.x + layout.size.width,
-    //                     y: location.y + layout.size.height,
-    //                 },
-    //             };
+                let rect = epaint::Rect {
+                    min: location.to_pos2(),
+                    max: Pos2 {
+                        x: location.x + layout.size.width,
+                        y: location.y + layout.size.height,
+                    },
+                };
 
-    //             (true, location)
-    //         },
-    //     );
-    // }
+                let node = dom.tree.get_node_context_mut(id).unwrap();
+                node.computed_rect = rect;
+                (true, location)
+            },
+        );
+    }
 
     // #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
     // pub fn get_paint_info(
@@ -688,24 +696,28 @@ impl Renderer {
     //     }
     // }
 
-    // #[tracing::instrument(skip_all, name = "Renderer::get_text_shape")]
-    // fn get_text_shape(&self, node: &Node, parent_node: &Node, parent_clip: Rect) -> ClippedShape {
-    //     let parent = &parent_node.styling;
+    fn get_text_shape(
+        &self,
+        node: &NodeContext,
+        parent_node: &NodeContext,
+        parent_clip: Rect,
+    ) -> ClippedShape {
+        let parent = &parent_node.styling;
 
-    //     let galley = self.fonts.layout(
-    //         node.attrs.get("value").unwrap().clone(),
-    //         parent.text.font.clone(),
-    //         parent.text.color,
-    //         node.computed_rect.size().x + 1.0,
-    //     );
+        let galley = self.fonts.layout(
+            node.attrs.get("value").unwrap().clone().to_string(),
+            parent.text.font.clone(),
+            parent.text.color,
+            node.computed_rect.size().x + 1.0,
+        );
 
-    //     let shape = Shape::galley(node.computed_rect.min, galley, Color32::BLACK);
+        let shape = Shape::galley(node.computed_rect.min, galley, Color32::BLACK);
 
-    //     ClippedShape {
-    //         clip_rect: parent_clip,
-    //         shape,
-    //     }
-    // }
+        ClippedShape {
+            clip_rect: parent_clip,
+            shape,
+        }
+    }
 
     // #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
     // fn get_cursor_shape(
@@ -866,45 +878,183 @@ impl Renderer {
     //     shapes
     // }
 
-    // #[tracing::instrument(skip_all, name = "Renderer::get_rect_shape")]
-    // fn get_rect_shape(&self, node: &Node, parent_clip: Rect) -> ClippedShape {
-    //     let styling = &node.styling;
-    //     let rounding = styling.border.radius;
-    //     let rect = epaint::Rect {
-    //         min: epaint::Pos2 {
-    //             x: node.computed_rect.min.x + styling.border.width / 2.0,
-    //             y: node.computed_rect.min.y + styling.border.width / 2.0,
-    //         },
-    //         max: node.computed_rect.max,
-    //     };
+    fn get_rect_shape(&self, node: &NodeContext, parent_clip: Rect) -> ClippedShape {
+        let styling = &node.styling;
+        let rounding = styling.border.radius;
+        let rect = epaint::Rect {
+            min: epaint::Pos2 {
+                x: node.computed_rect.min.x + styling.border.width / 2.0,
+                y: node.computed_rect.min.y + styling.border.width / 2.0,
+            },
+            max: node.computed_rect.max,
+        };
 
-    //     let shape = epaint::Shape::Rect(epaint::RectShape {
-    //         rect,
-    //         rounding,
-    //         fill: if styling.texture_id.is_some() {
-    //             Color32::WHITE
-    //         } else {
-    //             styling.background_color
-    //         },
-    //         stroke: epaint::Stroke {
-    //             width: styling.border.width,
-    //             color: styling.border.color,
-    //         },
-    //         fill_texture_id: if let Some(texture_id) = styling.texture_id {
-    //             texture_id
-    //         } else {
-    //             TextureId::default()
-    //         },
-    //         uv: if styling.texture_id.is_some() {
-    //             epaint::Rect::from_min_max(epaint::pos2(0.0, 0.0), epaint::pos2(1.0, 1.0))
-    //         } else {
-    //             epaint::Rect::from_min_max(WHITE_UV, WHITE_UV)
-    //         },
-    //     });
+        let shape = epaint::Shape::Rect(epaint::RectShape {
+            rect,
+            rounding,
+            fill: if styling.texture_id.is_some() {
+                Color32::WHITE
+            } else {
+                styling.background_color
+            },
+            stroke: epaint::Stroke {
+                width: styling.border.width,
+                color: styling.border.color,
+            },
+            fill_texture_id: if let Some(texture_id) = styling.texture_id {
+                texture_id
+            } else {
+                TextureId::default()
+            },
+            uv: if styling.texture_id.is_some() {
+                epaint::Rect::from_min_max(epaint::pos2(0.0, 0.0), epaint::pos2(1.0, 1.0))
+            } else {
+                epaint::Rect::from_min_max(WHITE_UV, WHITE_UV)
+            },
+        });
 
-    //     ClippedShape {
-    //         clip_rect: parent_clip,
-    //         shape,
-    //     }
-    // }
+        ClippedShape {
+            clip_rect: parent_clip,
+            shape,
+        }
+    }
+
+    #[tracing::instrument(skip_all, name = "Renderer::get_paint_info")]
+    pub fn get_paint_info(
+        &mut self,
+        dom: &mut Dom,
+    ) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
+        let now = Instant::now();
+        self.calculate_layout(dom);
+
+        // get all computed rects
+        let root_id = dom.get_root_id();
+        dom.traverse_tree_mut_with_parent_and_data(
+            root_id,
+            None,
+            &None,
+            &mut |dom, id, parent_id, parent_clip| {
+                let style = dom.tree.style(id).unwrap().clone();
+                let (node, parent) = if let Some(parent_id) = parent_id {
+                    let [node, parent] = dom
+                        .tree
+                        .get_disjoint_node_context_mut([id, parent_id])
+                        .unwrap();
+                    (node, Some(parent))
+                } else {
+                    (dom.tree.get_node_context_mut(id).unwrap(), None)
+                };
+
+                // we need to make sure the scrollbar doesnt get overwritten
+                let node_clip = {
+                    epaint::Rect {
+                        min: node.computed_rect.min,
+                        max: epaint::Pos2 {
+                            x: if style.overflow.y == Overflow::Scroll
+                                && style.scrollbar_width != 0.0
+                            {
+                                node.computed_rect.max.x - style.scrollbar_width
+                            } else {
+                                node.computed_rect.max.x
+                            },
+                            y: if style.overflow.x == Overflow::Scroll
+                                && style.scrollbar_width != 0.0
+                            {
+                                node.computed_rect.max.y - style.scrollbar_width
+                            } else {
+                                node.computed_rect.max.y
+                            },
+                        },
+                    }
+                };
+
+                let mut clip = node_clip;
+                match style.overflow.y {
+                    Overflow::Scroll | Overflow::Hidden => {
+                        if let Some(current_clip) = parent_clip {
+                            clip = node_clip.intersect(*current_clip);
+                        }
+                    }
+                    Overflow::Visible => {
+                        if let Some(parent_clip_rect) = parent_clip {
+                            clip = *parent_clip_rect;
+                        }
+                    }
+                    _ => {}
+                }
+
+                match &(*node.tag) {
+                    "text" => {
+                        let shape = self.get_text_shape(node, parent.unwrap(), clip);
+
+                        // if let Some(cursor) = parent.attrs.get("cursor") {
+                        //     let epaint::Shape::Text(text_shape) = &shape.shape else {
+                        //         unreachable!();
+                        //     };
+                        //     let Some(selection_start) =
+                        //         parent.attrs.get("selection_start").or(Some(cursor))
+                        //     else {
+                        //         unreachable!();
+                        //     };
+
+                        //     if let Ok(cursor) = str::parse::<usize>(cursor) {
+                        //         if parent.attrs.get("cursor_visible").unwrap_or(&String::new())
+                        //             == "true"
+                        //         {
+                        //             shapes.push(self.get_cursor_shape(parent, text_shape, cursor));
+                        //         }
+
+                        //         if let Ok(selection_start) = str::parse::<usize>(selection_start) {
+                        //             shapes.extend_from_slice(&self.get_text_selection_shape(
+                        //                 text_shape,
+                        //                 cursor,
+                        //                 selection_start,
+                        //                 parent.styling.text.selection_color,
+                        //             ));
+                        //         }
+                        //     }
+                        // }
+
+                        self.shapes.push(shape);
+                    }
+                    _ => {
+                        self.shapes.push(self.get_rect_shape(node, clip));
+                    }
+                }
+
+                (true, Some(clip))
+            },
+        );
+
+        let texture_delta = {
+            let font_image_delta = self.fonts.font_image_delta();
+            if let Some(font_image_delta) = font_image_delta {
+                self.tex_manager
+                    .set(epaint::TextureId::default(), font_image_delta);
+            }
+
+            self.tex_manager.take_delta()
+        };
+
+        let (font_tex_size, prepared_discs) = {
+            let atlas = self.fonts.texture_atlas();
+            let atlas = atlas.lock();
+            (atlas.size(), atlas.prepared_discs())
+        };
+
+        // println!("shapes: {:?}", self.shapes.len());
+
+        let primitives = epaint::tessellator::tessellate_shapes(
+            self.fonts.pixels_per_point(),
+            epaint::TessellationOptions::default(),
+            font_tex_size,
+            prepared_discs,
+            std::mem::take(&mut self.shapes),
+        );
+
+        // println!("primitives: {:?}", primitives.len());
+        println!("paint info took: {:?}", now.elapsed());
+
+        (primitives, texture_delta, &self.screen_descriptor)
+    }
 }
