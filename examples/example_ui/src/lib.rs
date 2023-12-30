@@ -7,7 +7,7 @@ pub fn app(cx: Scope) -> Element {
             class: "flex-col gap-y-10",
 
             view {
-                class: "p-10 bg-indigo-300 gap-x-40 shrink-0",
+                class: "p-10 bg-indigo-300 gap-x-40 shrink-0 flex-col",
 
                 view {
                     class: "w-200 h-200 p-15 flex-nowrap bg-rose-900 overflow-y-scroll overflow-x-scroll scrollbar-default",
@@ -27,9 +27,15 @@ pub fn app(cx: Scope) -> Element {
                 }
             }
 
-            (0..100).map(|_| rsx! {
+            (0..1000).map(|_| rsx! {
                 view {
                     class: "w-full h-50 p-10 bg-blue-900",
+
+                    view {
+                        class: "w-50 h-50 bg-red-500 items-center justify-center",
+
+                        "Click me"
+                    }
                 }
             })
         }

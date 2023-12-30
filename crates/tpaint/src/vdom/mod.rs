@@ -1,6 +1,8 @@
 pub mod events;
 pub mod tailwind;
 mod renderer;
+pub mod taffy_vdom;
+pub mod event_loop;
 
 use std::{
     sync::{Arc, Mutex}, fmt::Debug, ops::Deref,
@@ -20,7 +22,7 @@ use winit::{dpi::{PhysicalPosition, PhysicalSize}, event_loop::EventLoopProxy, e
 
 use crate::vdom::events::{KeyInput, translate_virtual_key_code};
 
-use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput, Focus, Blur, Key, Drag}, renderer::Renderer};
+use self::{tailwind::Tailwind, events::{DomEvent, PointerMove, PointerInput, Focus, Blur, Key, Drag}, renderer::{Renderer, ScreenDescriptor}};
 
 new_key_type! { pub struct NodeId; }
 
@@ -873,11 +875,7 @@ impl VDom {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ScreenDescriptor {
-    pub pixels_per_point: f32,
-    pub size: PhysicalSize<u32>,
-}
+
 
 #[derive(Clone, Default)]
 pub struct CursorState {

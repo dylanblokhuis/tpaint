@@ -13,8 +13,13 @@ use taffy::{
 };
 use winit::dpi::PhysicalSize;
 
-use super::{tailwind::StyleState, Node, ScreenDescriptor, VDom, MAX_CHILDREN};
+use super::{tailwind::StyleState, Node, VDom, MAX_CHILDREN};
 
+#[derive(Clone, Debug)]
+pub struct ScreenDescriptor {
+    pub pixels_per_point: f32,
+    pub size: PhysicalSize<u32>,
+}
 pub struct Renderer {
     pub screen_descriptor: ScreenDescriptor,
     pub fonts: Fonts,

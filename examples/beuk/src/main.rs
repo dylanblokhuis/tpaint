@@ -5,7 +5,7 @@ use beuk::{ash::vk, ctx::RenderContextDescriptor};
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 use simple_logger::SimpleLogger;
 use std::sync::Arc;
-use tpaint::DomEventLoop;
+use tpaint::DomEventLoopV2;
 use tpaint_beuk::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
 
@@ -50,7 +50,7 @@ fn main() {
     drop(swapchain);
 
     // let mut ctx = RenderContext::new(&device, config.format, None, 1, size);
-    let mut app = DomEventLoop::spawn(
+    let mut app = DomEventLoopV2::spawn(
         app::app,
         window.inner_size(),
         window.scale_factor() as f32,
@@ -139,6 +139,8 @@ fn main() {
                 {
                     ctx.recreate_swapchain(new_inner_size.width, new_inner_size.height);
                 }
+
+                // window.request_redraw();
 
                 let repaint = app.on_window_event(window_event);
                 if repaint {

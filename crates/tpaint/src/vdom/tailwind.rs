@@ -78,6 +78,7 @@ pub struct Tailwind {
     pub scrollbar: ScrollbarStyling,
 }
 
+#[derive(Default)]
 pub struct StyleState {
     pub hovered: bool,
     pub focused: bool,
@@ -117,6 +118,27 @@ impl Tailwind {
         }
 
         self
+    }
+
+    pub fn get_style(&mut self, class: &str, state: &StyleState) -> Style {
+        let classes = class.split_whitespace();
+        let mut layout_style = Style::default();
+
+        for class in classes {
+            self.handle_class(&mut layout_style, &COLORS, class);
+            if state.hovered {
+                if let Some(class) = class.strip_prefix("hover:") {
+                    self.handle_class(&mut layout_style, &COLORS, class);
+                }
+            }
+            if state.focused {
+                if let Some(class) = class.strip_prefix("focus:") {
+                    self.handle_class(&mut layout_style, &COLORS, class);
+                }
+            }
+        }
+
+        layout_style
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::set_texture")]
@@ -285,6 +307,11 @@ impl Tailwind {
                 "wrap" => style.flex_wrap = FlexWrap::Wrap,
                 "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
                 "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
+                "none" => {
+                    style.flex_grow = 0.0;
+                    style.flex_shrink = 0.0;
+                    style.flex_basis = Dimension::AUTO;
+                }
                 _ => {}
             }
         }
@@ -301,6 +328,10 @@ impl Tailwind {
             style.flex_grow = 0.0;
         }
 
+        if let Some(class) = class.strip_prefix("basis-") {
+            style.flex_basis = handle_size(class);
+        }
+
         if let Some(class) = class.strip_prefix("w-") {
             style.size.width = handle_size(class);
         }
@@ -315,6 +346,14 @@ impl Tailwind {
 
         if let Some(class) = class.strip_prefix("min-h-") {
             style.min_size.height = handle_size(class);
+        }
+
+        if let Some(class) = class.strip_prefix("max-w-") {
+            style.max_size.width = handle_size(class);
+        }
+
+        if let Some(class) = class.strip_prefix("max-h-") {
+            style.max_size.height = handle_size(class);
         }
 
         if let Some(class) = class.strip_prefix("bg-") {
@@ -469,6 +508,17 @@ impl Tailwind {
                 "baseline" => style.align_items = Some(AlignItems::Baseline),
                 "stretch" => style.align_items = Some(AlignItems::Stretch),
                 _ => debug!("Unknown align items {class}"),
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("align-self-") {
+            match class {
+                "start" => style.align_self = Some(AlignItems::FlexStart),
+                "end" => style.align_self = Some(AlignItems::FlexEnd),
+                "center" => style.align_self = Some(AlignItems::Center),
+                "baseline" => style.align_self = Some(AlignItems::Baseline),
+                "stretch" => style.align_self = Some(AlignItems::Stretch),
+                _ => debug!("Unknown align self {class}"),
             }
         }
 

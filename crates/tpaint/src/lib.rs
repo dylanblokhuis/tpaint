@@ -50,6 +50,7 @@ macro_rules! impl_event {
     };
 }
 
+pub use vdom::event_loop::DomEventLoop as DomEventLoopV2;
 pub use vdom::DomEventLoop;
 
 pub mod prelude {
