@@ -4,15 +4,11 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use epaint::{Pos2, Rect, Vec2};
+use epaint::Vec2;
 use rustc_hash::{FxHashMap, FxHashSet};
-use smallvec::{smallvec, SmallVec};
-use taffy::{geometry::Point, prelude::*, style::Overflow};
+use taffy::prelude::*;
 
-use super::{
-    tailwind::{StyleState, Tailwind},
-    MAX_CHILDREN,
-};
+use super::tailwind::{StyleState, Tailwind};
 
 pub struct NodeContext {
     pub tag: Arc<str>,
@@ -24,200 +20,18 @@ pub struct NodeContext {
     pub computed_rect: epaint::Rect,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ScrollNode {
-    pub id: NodeId,
-    pub vertical_scrollbar: Option<Rect>,
-    pub vertical_thumb: Option<Rect>,
-    pub horizontal_scrollbar: Option<Rect>,
-    pub horizontal_thumb: Option<Rect>,
-
-    pub is_vertical_scrollbar_hovered: bool,
-    pub is_horizontal_scrollbar_hovered: bool,
-    pub is_vertical_scrollbar_button_hovered: bool,
-    pub is_horizontal_scrollbar_button_hovered: bool,
-    pub is_vertical_scrollbar_button_grabbed: bool,
-    pub is_horizontal_scrollbar_button_grabbed: bool,
-
-    pub thumb_drag_start_pos: Pos2,
-}
-
-impl ScrollNode {
-    pub fn new(id: NodeId) -> ScrollNode {
-        ScrollNode {
-            id,
-            vertical_scrollbar: None,
-            vertical_thumb: None,
-            horizontal_scrollbar: None,
-            horizontal_thumb: None,
-            is_vertical_scrollbar_hovered: false,
-            is_horizontal_scrollbar_hovered: false,
-            is_vertical_scrollbar_button_hovered: false,
-            is_horizontal_scrollbar_button_hovered: false,
-            is_vertical_scrollbar_button_grabbed: false,
-            is_horizontal_scrollbar_button_grabbed: false,
-
-            thumb_drag_start_pos: Pos2::ZERO,
-        }
-    }
-
-    pub fn set_vertical_scrollbar(&mut self, vertical_scrollbar: Rect, vertical_thumb: Rect) {
-        self.vertical_scrollbar = Some(vertical_scrollbar);
-        self.vertical_thumb = Some(vertical_thumb);
-    }
-
-    pub fn set_horizontal_scrollbar(&mut self, horizontal_scrollbar: Rect, horizontal_thumb: Rect) {
-        self.horizontal_scrollbar = Some(horizontal_scrollbar);
-        self.horizontal_thumb = Some(horizontal_thumb);
-    }
-
-    pub fn on_mouse_move(&mut self, mouse_pos: &Pos2, content_size: Size<f32>, scroll: &mut Vec2) {
-        if let Some(vertical_scrollbar) = self.vertical_scrollbar {
-            let is_hovered = vertical_scrollbar.contains(*mouse_pos);
-            self.is_vertical_scrollbar_hovered = is_hovered;
-        }
-
-        if let Some(horizontal_scrollbar) = self.horizontal_scrollbar {
-            let is_hovered = horizontal_scrollbar.contains(*mouse_pos);
-            self.is_horizontal_scrollbar_hovered = is_hovered;
-        }
-
-        if let Some(vertical_thumb) = self.vertical_thumb {
-            let is_hovered = vertical_thumb.contains(*mouse_pos);
-            self.is_vertical_scrollbar_hovered = is_hovered;
-            self.is_vertical_scrollbar_button_hovered = is_hovered;
-            let vertical_scrollbar = self.vertical_scrollbar.unwrap();
-
-            if self.is_vertical_scrollbar_button_grabbed {
-                let drag_delta_y = mouse_pos.y - self.thumb_drag_start_pos.y;
-                let drag_percentage = drag_delta_y / vertical_scrollbar.height();
-
-                let viewport_height = vertical_scrollbar.height();
-                let max_scrollable_distance = content_size.height
-                    - viewport_height
-                    - if let Some(horizontal_scrollbar) = self.horizontal_scrollbar {
-                        horizontal_scrollbar.height()
-                    } else {
-                        0.0
-                    };
-
-                scroll.y += drag_percentage * max_scrollable_distance;
-                scroll.y = scroll.y.clamp(0.0, max_scrollable_distance);
-
-                self.thumb_drag_start_pos = *mouse_pos;
-            }
-        }
-
-        if let Some(horizontal_thumb) = self.horizontal_thumb {
-            let is_hovered = horizontal_thumb.contains(*mouse_pos);
-            self.is_horizontal_scrollbar_hovered = is_hovered;
-            self.is_horizontal_scrollbar_button_hovered = is_hovered;
-            let horizontal_scrollbar = self.horizontal_scrollbar.unwrap();
-
-            if self.is_horizontal_scrollbar_button_grabbed {
-                let drag_delta_x = mouse_pos.x - self.thumb_drag_start_pos.x;
-                let drag_percentage = drag_delta_x / horizontal_scrollbar.width();
-
-                let viewport_width = horizontal_scrollbar.width();
-                let max_scrollable_distance = content_size.width
-                    - viewport_width
-                    - if let Some(vertical_scrollbar) = self.vertical_scrollbar {
-                        vertical_scrollbar.width()
-                    } else {
-                        0.0
-                    };
-
-                scroll.x += drag_percentage * max_scrollable_distance;
-                scroll.x = scroll.x.clamp(0.0, max_scrollable_distance);
-
-                self.thumb_drag_start_pos = *mouse_pos;
-            }
-        }
-    }
-
-    pub fn on_click(&mut self, mouse_pos: &Pos2, content_size: Size<f32>, scroll: &mut Vec2) {
-        if let Some(vertical_scrollbar) = self.vertical_scrollbar {
-            let is_hovered = vertical_scrollbar.contains(*mouse_pos);
-            self.is_vertical_scrollbar_hovered = is_hovered;
-            self.is_vertical_scrollbar_button_hovered =
-                is_hovered && !self.vertical_thumb.unwrap().contains(*mouse_pos);
-
-            if is_hovered {
-                let click_y_relative = mouse_pos.y - vertical_scrollbar.min.y;
-                let click_percentage = click_y_relative / vertical_scrollbar.height();
-                let viewport_height = vertical_scrollbar.height();
-
-                let thumb_height =
-                    (viewport_height / content_size.height) * vertical_scrollbar.height();
-                let scroll_to_y_centered = click_percentage
-                    * (content_size.height - viewport_height)
-                    - (thumb_height / 2.0);
-                let scroll_to_y_final =
-                    scroll_to_y_centered.clamp(0.0, content_size.height - viewport_height);
-                scroll.y = scroll_to_y_final;
-            }
-        }
-
-        if let Some(horizontal_scrollbar) = self.horizontal_scrollbar {
-            let is_hovered = horizontal_scrollbar.contains(*mouse_pos);
-            self.is_horizontal_scrollbar_hovered = is_hovered;
-            self.is_horizontal_scrollbar_button_hovered =
-                is_hovered && !self.horizontal_thumb.unwrap().contains(*mouse_pos);
-
-            if is_hovered {
-                let click_x_relative = mouse_pos.x - horizontal_scrollbar.min.x;
-                let click_percentage = click_x_relative / horizontal_scrollbar.width();
-                let viewport_width = horizontal_scrollbar.width();
-
-                let thumb_width =
-                    (viewport_width / content_size.width) * horizontal_scrollbar.width();
-                let scroll_to_x_centered =
-                    click_percentage * (content_size.width - viewport_width) - (thumb_width / 2.0);
-                let scroll_to_x_final =
-                    scroll_to_x_centered.clamp(0.0, content_size.width - viewport_width);
-                scroll.x = scroll_to_x_final;
-            }
-        }
-
-        if let Some(vertical_thumb) = self.vertical_thumb {
-            let is_hovered = vertical_thumb.contains(*mouse_pos);
-            self.is_vertical_scrollbar_hovered = is_hovered;
-            self.is_vertical_scrollbar_button_hovered = is_hovered;
-            self.is_vertical_scrollbar_button_grabbed = is_hovered;
-
-            if is_hovered {
-                self.thumb_drag_start_pos = *mouse_pos;
-            }
-        }
-
-        if let Some(horizontal_thumb) = self.horizontal_thumb {
-            let is_hovered = horizontal_thumb.contains(*mouse_pos);
-            self.is_horizontal_scrollbar_hovered = is_hovered;
-            self.is_horizontal_scrollbar_button_hovered = is_hovered;
-            self.is_horizontal_scrollbar_button_grabbed = is_hovered;
-
-            if is_hovered {
-                self.thumb_drag_start_pos = *mouse_pos;
-            }
-        }
-    }
-}
-
 pub struct Dom {
-    pub tree: Taffy<NodeContext>,
-    templates: FxHashMap<String, SmallVec<[NodeId; MAX_CHILDREN]>>,
-    stack: SmallVec<[NodeId; MAX_CHILDREN]>,
+    pub tree: TaffyTree<NodeContext>,
+    templates: FxHashMap<String, Vec<NodeId>>,
+    stack: Vec<NodeId>,
     pub element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
-    pub event_listeners: FxHashMap<ElementId, SmallVec<[Arc<str>; 8]>>,
-    pub hovered: SmallVec<[NodeId; MAX_CHILDREN]>,
-    pub focused: Option<NodeId>,
-    pub current_scroll_node: Option<ScrollNode>,
+    pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
 }
 
 impl Dom {
     pub fn new() -> Dom {
-        let mut tree = Taffy::<NodeContext>::new();
+        let mut tree = TaffyTree::<NodeContext>::new();
 
         let mut tw = Tailwind::default();
         let style = tw.get_style("w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default", &StyleState::default());
@@ -253,47 +67,7 @@ impl Dom {
             element_id_mapping,
             common_tags_and_attr_keys,
             event_listeners: Default::default(),
-            hovered: Default::default(),
-            focused: None,
-            current_scroll_node: None,
         }
-    }
-
-    /// Splits the collection into two at the given index.
-    ///
-    /// Returns a newly allocated vector containing the elements in the range
-    /// `[at, len)`. After the call, the original vector will be left containing
-    /// the elements `[0, at)` with its previous capacity unchanged.
-    ///
-    pub fn split_stack(&mut self, at: usize) -> SmallVec<[NodeId; MAX_CHILDREN]> {
-        if at > self.stack.len() {
-            let len = self.stack.len();
-            panic!("`at` split index (is {at}) should be <= len (is {len})");
-        }
-
-        if at == 0 {
-            let cap = self.stack.capacity();
-            return std::mem::replace(
-                &mut self.stack,
-                SmallVec::<[NodeId; MAX_CHILDREN]>::with_capacity(cap),
-            );
-        }
-
-        let other_len = self.stack.len() - at;
-        let mut other = SmallVec::<[NodeId; MAX_CHILDREN]>::with_capacity(other_len);
-
-        unsafe {
-            self.stack.set_len(at);
-            other.set_len(other_len);
-
-            std::ptr::copy_nonoverlapping(
-                self.stack.as_ptr().add(at),
-                other.as_mut_ptr(),
-                other_len,
-            );
-        }
-
-        other
     }
 
     pub fn insert_node_before(&mut self, old_node_id: NodeId, new_id: NodeId) {
@@ -479,7 +253,7 @@ impl Dom {
     #[tracing::instrument(skip_all, name = "Dom::apply_mutations")]
     pub fn apply_mutations(&mut self, mutations: Mutations) {
         for template in mutations.templates {
-            let mut children = SmallVec::with_capacity(template.roots.len());
+            let mut children = Vec::with_capacity(template.roots.len());
             for root in template.roots {
                 let id: NodeId =
                     self.create_template_node(root, Some(self.element_id_mapping[&ElementId(0)]));
@@ -525,7 +299,7 @@ impl Dom {
                 }
 
                 dioxus::core::Mutation::AppendChildren { m, id } => {
-                    let children = self.split_stack(self.stack.len() - m);
+                    let children = self.stack.split_off(self.stack.len() - m);
                     let parent = self.element_id_mapping[&id];
                     for child in children {
                         self.tree.add_child(parent, child).unwrap();
@@ -537,7 +311,7 @@ impl Dom {
                     if let Some(listeners) = self.event_listeners.get_mut(&id) {
                         listeners.push(name);
                     } else {
-                        self.event_listeners.insert(id, smallvec![name]);
+                        self.event_listeners.insert(id, vec![name]);
                     }
                 }
                 dioxus::core::Mutation::RemoveEventListener { name, id } => {
@@ -606,7 +380,7 @@ impl Dom {
                 }
 
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
-                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let new_nodes = self.stack.split_off(self.stack.len() - m);
                     let old_node_id = self.element_id_mapping[&id];
                     for new_id in new_nodes {
                         self.insert_node_before(old_node_id, new_id);
@@ -614,7 +388,7 @@ impl Dom {
                     self.remove_node(old_node_id);
                 }
                 dioxus::core::Mutation::ReplacePlaceholder { path, m } => {
-                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let new_nodes = self.stack.split_off(self.stack.len() - m);
                     let old_node_id = self.load_path(path);
 
                     for new_id in new_nodes {
@@ -625,7 +399,7 @@ impl Dom {
                 }
 
                 dioxus::core::Mutation::InsertAfter { id, m } => {
-                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let new_nodes = self.stack.split_off(self.stack.len() - m);
                     let old_node_id = self.element_id_mapping[&id];
                     for new_id in new_nodes.into_iter().rev() {
                         self.insert_node_after(old_node_id, new_id);
@@ -633,7 +407,7 @@ impl Dom {
                 }
 
                 dioxus::core::Mutation::InsertBefore { id, m } => {
-                    let new_nodes = self.split_stack(self.stack.len() - m);
+                    let new_nodes = self.stack.split_off(self.stack.len() - m);
                     let old_node_id = self.element_id_mapping[&id];
                     for new_id in new_nodes {
                         self.insert_node_before(old_node_id, new_id);

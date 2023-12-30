@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use dioxus::prelude::*;
 use tpaint::prelude::*;
 use tpaint::DomEventLoop;
@@ -18,24 +18,14 @@ fn app(cx: Scope) -> Element {
     }
 }
 
-pub fn run_calculate_layout(app: &mut DomEventLoop) {
-    let mut vdom = app.vdom.lock().unwrap();
-    app.renderer.calculate_layout(&mut vdom);
-}
-
-pub fn run_paint_info(app: &mut DomEventLoop) {
-    let vdom = app.vdom.lock().unwrap();
-    let _ = app.renderer.get_paint_info(&vdom);
-}
-
-pub fn criterion_benchmark(c: &mut Criterion) {
-    let event_loop = EventLoopBuilder::with_user_event().build();
+pub fn criterion_benchmark(_c: &mut Criterion) {
+    let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
         .build(&event_loop)
         .unwrap();
 
-    let mut app = DomEventLoop::spawn(
+    let _app = DomEventLoop::spawn(
         app,
         window.inner_size(),
         window.scale_factor() as f32,
@@ -44,13 +34,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         (),
     );
 
-    c.bench_function("calculate_layout", |b| {
-        b.iter(|| run_calculate_layout(black_box(&mut app)))
-    });
+    // c.bench_function("calculate_layout", |b| {
+    //     b.iter(|| run_calculate_layout(black_box(&mut app)))
+    // });
 
-    c.bench_function("get_paint_info", |b| {
-        b.iter(|| run_paint_info(black_box(&mut app)))
-    });
+    // c.bench_function("get_paint_info", |b| {
+    //     b.iter(|| run_paint_info(black_box(&mut app)))
+    // });
 }
 
 criterion_group!(benches, criterion_benchmark);

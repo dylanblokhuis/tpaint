@@ -2,9 +2,11 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
-pub mod components;
-pub mod hooks;
-mod vdom;
+mod dom;
+mod event_loop;
+mod events;
+mod renderer;
+mod tailwind;
 
 #[doc(hidden)]
 pub trait EventReturn<P>: Sized {
@@ -50,8 +52,7 @@ macro_rules! impl_event {
     };
 }
 
-pub use vdom::event_loop::DomEventLoop as DomEventLoopV2;
-pub use vdom::DomEventLoop;
+pub use event_loop::DomEventLoop;
 
 pub mod prelude {
 
@@ -84,45 +85,45 @@ pub mod prelude {
             pub const src: AttributeDescription = ("src", None, false);
         }
 
-        pub mod events {
-            impl_event! [
-                crate::vdom::events::PointerInput;
-                onclick
-                onmouseup
-                onmousedown
-            ];
+        // pub mod events {
+        //     impl_event! [
+        //         crate::vdom::events::PointerInput;
+        //         onclick
+        //         onmouseup
+        //         onmousedown
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::PointerMove;
-                onmousemove
-            ];
+        //     impl_event! [
+        //         crate::vdom::events::PointerMove;
+        //         onmousemove
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::Text;
-                oninput
-            ];
+        //     impl_event! [
+        //         crate::vdom::events::Text;
+        //         oninput
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::KeyInput;
-                onkeydown
-                onkeyup
-            ];
+        //     impl_event! [
+        //         crate::vdom::events::KeyInput;
+        //         onkeydown
+        //         onkeyup
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::Focus;
-                onfocus
-            ];
+        //     impl_event! [
+        //         crate::vdom::events::Focus;
+        //         onfocus
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::Blur;
-                onblur
-            ];
+        //     impl_event! [
+        //         crate::vdom::events::Blur;
+        //         onblur
+        //     ];
 
-            impl_event! [
-                crate::vdom::events::Drag;
-                ondrag
-            ];
-        }
+        //     impl_event! [
+        //         crate::vdom::events::Drag;
+        //         ondrag
+        //     ];
+        // }
     }
 }
 

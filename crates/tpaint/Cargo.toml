@@ -27,12 +27,12 @@ smallvec = "1.11.0"
 taffy = { git = "https://github.com/dylanblokhuis/taffy.git" }
 tokio = { version = "1.32.0", features = ["time", "rt", "sync", "macros"] }
 tween = "2.0.1"
-usvg = { version = "0.35.0", optional = true }
-resvg = { version = "0.35.0", optional = true }
+usvg = { version = "0.37.0", optional = true }
+resvg = { version = "0.37.0", optional = true }
 image = { version = "0.24.7", optional = true }
 uuid = { version = "1.4.1", features = ["v4"] }
-winit = "0.28"
-copypasta = "0.8.2"
+winit = "0.29"
+copypasta = "0.10"
 tracing = "0.1"
 
 [features]

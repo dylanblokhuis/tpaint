@@ -86,7 +86,12 @@ pub struct StyleState {
 
 impl Tailwind {
     #[tracing::instrument(skip_all, name = "Tailwind::set_styling")]
-    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) -> &mut Self {
+    pub fn set_styling(
+        &mut self,
+        taffy: &mut TaffyTree,
+        class: &str,
+        state: &StyleState,
+    ) -> &mut Self {
         let classes = class.split_whitespace();
 
         // todo: perhaps find a way to this lazily
@@ -142,7 +147,12 @@ impl Tailwind {
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::set_texture")]
-    pub fn set_texture(&mut self, taffy: &mut Taffy, src: &str, tex_manager: &mut TextureManager) {
+    pub fn set_texture(
+        &mut self,
+        taffy: &mut TaffyTree,
+        src: &str,
+        tex_manager: &mut TextureManager,
+    ) {
         use usvg::TreeParsing;
 
         let mut path = std::path::PathBuf::new();
@@ -201,7 +211,7 @@ impl Tailwind {
     }
 
     #[tracing::instrument(skip_all, name = "Tailwind::set_aspect_ratio_layout")]
-    fn set_aspect_ratio_layout(&self, taffy: &mut Taffy, tex_manager: &TextureManager) {
+    fn set_aspect_ratio_layout(&self, taffy: &mut TaffyTree, tex_manager: &TextureManager) {
         let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
         let image_size = [meta.size[0] as f32, meta.size[1] as f32];
         let aspect_ratio = image_size[0] / image_size[1];
@@ -242,7 +252,7 @@ impl Tailwind {
     pub fn get_font_galley(
         &self,
         text: &str,
-        taffy: &Taffy,
+        taffy: &TaffyTree,
         fonts: &Fonts,
         parent: &Tailwind,
     ) -> Arc<Galley> {
@@ -260,7 +270,7 @@ impl Tailwind {
     pub fn set_text_styling(
         &mut self,
         text: &str,
-        taffy: &mut Taffy,
+        taffy: &mut TaffyTree,
         fonts: &Fonts,
         parent: &Tailwind,
     ) {
