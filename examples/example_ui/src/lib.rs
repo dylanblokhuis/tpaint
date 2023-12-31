@@ -4,7 +4,7 @@ use tpaint::prelude::*;
 pub fn app(cx: Scope) -> Element {
     render! {
         view {
-            class: "flex-col gap-y-10",
+            class: "flex-col gap-y-10 w-full",
 
             view {
                 class: "p-10 bg-indigo-300 gap-x-40 shrink-0 flex-col",

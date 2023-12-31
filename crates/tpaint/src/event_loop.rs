@@ -122,6 +122,18 @@ impl DomEventLoop {
             WindowEvent::MouseInput { .. } => {
                 repaint = true;
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                let mut dom = self.dom.lock().unwrap();
+                repaint = dom.on_mouse_move(*position);
+            }
+            WindowEvent::MouseWheel { delta,  .. } => {               
+                let mut dom = self.dom.lock().unwrap();
+                repaint = dom.on_scroll(delta)
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                let mut dom = self.dom.lock().unwrap();
+                dom.keyboard_state.modifiers = *modifiers;
+            }
             _ => {}
         }
 

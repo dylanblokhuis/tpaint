@@ -6,7 +6,8 @@ use dioxus::{
 };
 use epaint::Vec2;
 use rustc_hash::{FxHashMap, FxHashSet};
-use taffy::prelude::*;
+use taffy::{prelude::*, Overflow};
+use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
 
 use super::tailwind::{StyleState, Tailwind};
 
@@ -16,8 +17,12 @@ pub struct NodeContext {
     pub attrs: FxHashMap<Arc<str>, Arc<str>>,
     pub styling: Tailwind,
     pub scroll: Vec2,
-    pub natural_content_size: Size<f32>,
     pub computed_rect: epaint::Rect,
+}
+
+#[derive(Default)]
+pub struct KeyboardState {
+    pub modifiers: winit::event::ModifiersState,
 }
 
 pub struct Dom {
@@ -29,6 +34,7 @@ pub struct Dom {
     pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
     pub hovered: Vec<NodeId>,
     pub focused: Option<NodeId>,
+    pub keyboard_state: KeyboardState,
 }
 
 impl Dom {
@@ -47,7 +53,6 @@ impl Dom {
                     attrs: Default::default(),
                     styling: tw,
                     scroll: Default::default(),
-                    natural_content_size: Default::default(),
                     computed_rect: epaint::Rect::ZERO,
                 },
             )
@@ -71,6 +76,7 @@ impl Dom {
             event_listeners: Default::default(),
             focused: None,
             hovered: vec![],
+            keyboard_state: Default::default(),
         }
     }
 
@@ -171,7 +177,6 @@ impl Dom {
                         .collect(),
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
-                    natural_content_size: Size::ZERO,
                     computed_rect: epaint::Rect::ZERO,
                 };
                 let style = self.get_initial_styling(&mut node);
@@ -195,7 +200,6 @@ impl Dom {
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
-                    natural_content_size: Size::ZERO,
                     computed_rect: epaint::Rect::ZERO,
                 };
                 let style = self.get_initial_styling(&mut node);
@@ -205,8 +209,6 @@ impl Dom {
             }
 
             TemplateNode::Dynamic { .. } => {
-                let attrs = FxHashMap::default();
-
                 let node_id = self
                     .tree
                     .new_leaf_with_context(
@@ -214,10 +216,9 @@ impl Dom {
                         NodeContext {
                             parent_id,
                             tag: "view".into(),
-                            attrs,
+                            attrs: FxHashMap::default(),
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
-                            natural_content_size: Size::ZERO,
                             computed_rect: epaint::Rect::ZERO,
                         },
                     )
@@ -239,7 +240,6 @@ impl Dom {
                             attrs,
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
-                            natural_content_size: Size::ZERO,
                             computed_rect: epaint::Rect::ZERO,
                         },
                     )
@@ -281,7 +281,6 @@ impl Dom {
                     let node = NodeContext {
                         parent_id: None,
                         attrs: FxHashMap::default(),
-                        natural_content_size: Size::ZERO,
                         computed_rect: epaint::Rect::ZERO,
 
                         scroll: Vec2::ZERO,
@@ -350,7 +349,6 @@ impl Dom {
                     let node = NodeContext {
                         parent_id: None,
                         attrs,
-                        natural_content_size: Size::ZERO,
                         computed_rect: epaint::Rect::ZERO,
 
                         scroll: Vec2::ZERO,
@@ -441,7 +439,6 @@ impl Dom {
             attrs,
             styling,
             scroll: Vec2::ZERO,
-            natural_content_size: Size::ZERO,
             computed_rect: epaint::Rect::ZERO,
         };
         let style = self.get_initial_styling(&mut node);
@@ -541,5 +538,62 @@ impl Dom {
         for child in self.tree.children(id).unwrap().iter() {
             self.traverse_tree_mut_with_parent_and_data(*child, Some(id), &data, callback);
         }
+    }
+
+    pub fn on_mouse_move(&mut self, position: PhysicalPosition<f64>) -> bool {
+        self.hovered.clear();
+        self.traverse_tree(self.get_root_id(), &mut |dom, id| {
+            let node = dom.tree.get_node_context_mut(id).unwrap();
+            let rect = node.computed_rect;
+            let is_hovered = rect.contains(epaint::Pos2::new(position.x as f32, position.y as f32));
+            if is_hovered {
+                dom.hovered.push(id);
+            }
+            true
+        });
+        false
+    }
+
+    /// Scrolls the last node that is scrollable
+    pub fn on_scroll(&mut self, delta: &MouseScrollDelta) -> bool {
+        let Some(scroll_node) = self.hovered.iter().rev().find_map(|id| {
+            let style = self.tree.style(*id).unwrap();
+
+            if style.overflow.x != Overflow::Scroll && style.overflow.y != Overflow::Scroll {
+                return None;
+            }
+
+            Some(id)
+        }) else {
+            return false;
+        };
+
+        let tick_size = 30.0;
+        let mut scroll = Vec2::ZERO;
+        match delta {
+            MouseScrollDelta::LineDelta(_x, y) => {
+                if self.keyboard_state.modifiers.shift() {
+                    scroll.x -= y * tick_size;
+                } else {
+                    scroll.y -= y * tick_size;
+                }
+            }
+            MouseScrollDelta::PixelDelta(pos) => {
+                scroll += Vec2::new(pos.x as f32, pos.y as f32);
+            }
+        }
+
+        let (total_scroll_width, total_scroll_height) = {
+            let layout = self.tree.layout(*scroll_node).unwrap();
+
+            (layout.scroll_width(), layout.scroll_height())
+        };
+
+        let node = self.tree.get_node_context_mut(*scroll_node).unwrap();
+        scroll += node.scroll;
+        node.scroll.x = scroll.x.max(0.0).min(total_scroll_width);
+        node.scroll.y = scroll.y.max(0.0).min(total_scroll_height);
+
+        true
     }
 }
