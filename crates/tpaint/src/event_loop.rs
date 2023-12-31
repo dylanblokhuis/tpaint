@@ -119,12 +119,13 @@ impl DomEventLoop {
                 };
                 repaint = true;
             }
-            WindowEvent::MouseInput { .. } => {
-                repaint = true;
+            WindowEvent::MouseInput { button, state, .. } => {
+                let mut dom = self.dom.lock().unwrap();
+                repaint = dom.on_mouse_input(button, state);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let mut dom = self.dom.lock().unwrap();
-                repaint = dom.on_mouse_move(*position);
+                repaint = dom.on_mouse_move(position, &self.renderer.screen_descriptor);
             }
             WindowEvent::MouseWheel { delta,  .. } => {               
                 let mut dom = self.dom.lock().unwrap();

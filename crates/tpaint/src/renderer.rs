@@ -3,15 +3,15 @@ use std::time::Instant;
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TextureId, TextureManager,
-    Vec2, WHITE_UV,
+    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TextureId,
+    TextureManager, Vec2, WHITE_UV,
 };
 
-use taffy::{Layout, Overflow, Size, Style};
+use taffy::{Layout, NodeId, Overflow, Size, Style};
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    dom::{Dom, NodeContext},
+    dom::{CursorState, Dom, NodeContext, SelectedNode},
     tailwind::{StyleState, TailwindCache},
 };
 
@@ -113,7 +113,9 @@ impl Renderer {
                         .styling
                         .set_styling(class.unwrap_or(&"".into()), &style_state),
 
-                    "text" => node.styling.set_styling("w-full", &style_state),
+                    "text" => node
+                        .styling
+                        .set_styling(class.unwrap_or(&"".into()), &style_state),
 
                     _ => unreachable!(),
                 };
@@ -141,7 +143,7 @@ impl Renderer {
                 let Some(parent_id) = parent_id else {
                     return true;
                 };
-                let max_width = dom.tree.layout(parent_id).unwrap().size.width;
+                let max_width = dom.tree.layout(id).unwrap().size.width;
                 let [node, parent] = dom
                     .tree
                     .get_disjoint_node_context_mut([id, parent_id])
@@ -158,7 +160,7 @@ impl Renderer {
                         let size = galley.size();
                         Style {
                             size: Size {
-                                width: taffy::Dimension::Length(size.x),
+                                width: taffy::Dimension::Length(max_width),
                                 height: taffy::Dimension::Length(size.y),
                             },
 
@@ -241,7 +243,7 @@ impl Renderer {
             node.attrs.get("value").unwrap().clone().to_string(),
             parent.text.font.clone(),
             parent.text.color,
-            node.computed_rect.size().x + 1.0,
+            node.computed_rect.width(),
         );
 
         let shape = Shape::galley(node.computed_rect.min, galley, Color32::BLACK);
@@ -462,6 +464,9 @@ impl Renderer {
 
         // get all computed rects
         let root_id = dom.get_root_id();
+        let cursor_state = dom.cursor_state.clone();
+        let selection = dom.selection.clone();
+
         dom.traverse_tree_mut_with_parent_and_data(
             root_id,
             None,
@@ -519,7 +524,7 @@ impl Renderer {
 
                 match &(*node.tag) {
                     "text" => {
-                        let shape = self.get_text_shape(node, parent.unwrap(), clip);
+                        let shape = self.get_text_shape(node, parent.as_ref().unwrap(), clip);
 
                         // if let Some(cursor) = parent.attrs.get("cursor") {
                         //     let epaint::Shape::Text(text_shape) = &shape.shape else {
@@ -549,6 +554,14 @@ impl Renderer {
                         //     }
                         // }
 
+                        let selection_shapes = self.get_selection_shape(
+                            &cursor_state,
+                            &selection,
+                            &id,
+                            node,
+                            parent.unwrap(),
+                        );
+                        self.shapes.extend(selection_shapes);
                         self.shapes.push(shape);
                     }
                     _ => {
@@ -850,5 +863,100 @@ impl Renderer {
             clip_rect: shape.visual_bounding_rect(),
             shape,
         }
+    }
+
+    pub fn get_selection_shape(
+        &mut self,
+        cursor_state: &CursorState,
+        selection: &Vec<SelectedNode>,
+        node_id: &NodeId,
+        node: &NodeContext,
+        parent: &NodeContext,
+    ) -> Vec<ClippedShape> {
+        if !cursor_state.drag_start_position.is_some() {
+            return vec![];
+        }
+
+        let Some(selected_node) = selection.iter().find(|s_node_id| {
+            return *node_id == s_node_id.node_id;
+        }) else {
+            return vec![];
+        };
+
+        let parent_clip: Rect = parent.computed_rect;
+
+        let galley = self.fonts.layout(
+            node.attrs.get("value").unwrap().clone().to_string(),
+            parent.styling.text.font.clone(),
+            parent.styling.text.color,
+            selected_node.computed_rect_when_selected.size().x + 1.0,
+        );
+
+        println!(
+            "node.computed_rect: {:?}",
+            selected_node.computed_rect_when_selected
+        );
+        println!(
+            " cursor_state.drag_start_position: {:?}",
+            cursor_state.drag_start_position
+        );
+        println!(
+            " cursor_state.drag_end_position: {:?}",
+            cursor_state.drag_end_position
+        );
+
+        let selection_start = cursor_state.drag_start_position.unwrap().to_vec2()
+            - selected_node.computed_rect_when_selected.min.to_vec2();
+        let selection_end = cursor_state
+            .drag_end_position
+            .unwrap_or(cursor_state.current_position)
+            .to_vec2()
+            - selected_node.computed_rect_when_selected.min.to_vec2();
+
+        dbg!(selection_start);
+        dbg!(selection_end);
+
+        let start_cursor = galley.cursor_from_pos(selection_start);
+        let end_cursor = galley.cursor_from_pos(selection_end);
+
+        let min = start_cursor.rcursor;
+        let max = end_cursor.rcursor;
+
+        let mut shapes = vec![];
+        for ri in min.row..=max.row {
+            let row = &galley.rows[ri];
+            let left = if ri == min.row {
+                row.x_offset(min.column)
+            } else {
+                row.rect.left()
+            };
+            let right = if ri == max.row {
+                row.x_offset(max.column)
+            } else {
+                let newline_size = if row.ends_with_newline {
+                    row.height() / 2.0 // visualize that we select the newline
+                } else {
+                    0.0
+                };
+                row.rect.right() + newline_size
+            };
+            let rect = Rect::from_min_max(
+                node.computed_rect.min + vec2(left, row.min_y()),
+                node.computed_rect.min + vec2(right, row.max_y()),
+            );
+            shapes.push(ClippedShape {
+                clip_rect: parent_clip,
+                shape: epaint::Shape::Rect(epaint::RectShape {
+                    rect,
+                    rounding: epaint::Rounding::ZERO,
+                    fill: parent.styling.text.selection_color,
+                    stroke: epaint::Stroke::default(),
+                    fill_texture_id: TextureId::default(),
+                    uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+                }),
+            });
+        }
+
+        shapes
     }
 }

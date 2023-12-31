@@ -75,7 +75,6 @@ fn main() {
 
     let mut renderer = Renderer::new(&device, swapchain_format, None, 1);
 
-    // let mut ctx = RenderContext::new(&device, config.format, None, 1, size);
     let mut app = DomEventLoop::spawn(
         app::app,
         window.inner_size(),

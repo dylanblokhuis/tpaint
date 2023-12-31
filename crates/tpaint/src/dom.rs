@@ -4,10 +4,12 @@ use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use epaint::Vec2;
+use epaint::{Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
 use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+use crate::renderer::ScreenDescriptor;
 
 use super::tailwind::{StyleState, Tailwind};
 
@@ -25,6 +27,21 @@ pub struct KeyboardState {
     pub modifiers: winit::event::ModifiersState,
 }
 
+#[derive(Default, Clone, Copy)]
+pub struct CursorState {
+    pub current_position: Pos2,
+    pub drag_start_position: Option<Pos2>,
+    pub drag_end_position: Option<Pos2>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SelectedNode {
+    pub node_id: NodeId,
+    pub parent_id: Option<NodeId>,
+    /// The position of the node when it was selected
+    pub computed_rect_when_selected: epaint::Rect,
+}
+
 pub struct Dom {
     pub tree: TaffyTree<NodeContext>,
     templates: FxHashMap<String, Vec<NodeId>>,
@@ -34,7 +51,9 @@ pub struct Dom {
     pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
     pub hovered: Vec<NodeId>,
     pub focused: Option<NodeId>,
+    pub selection: Vec<SelectedNode>,
     pub keyboard_state: KeyboardState,
+    pub cursor_state: CursorState,
 }
 
 impl Dom {
@@ -76,7 +95,9 @@ impl Dom {
             event_listeners: Default::default(),
             focused: None,
             hovered: vec![],
+            selection: vec![],
             keyboard_state: Default::default(),
+            cursor_state: Default::default(),
         }
     }
 
@@ -192,7 +213,7 @@ impl Dom {
             }
             TemplateNode::Text { text } => {
                 let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("class"), "max-w-full".into());
+                attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
                 attrs.insert(self.get_tag_or_attr_key("value"), text.into());
                 let mut node = NodeContext {
                     parent_id,
@@ -228,7 +249,8 @@ impl Dom {
             }
 
             TemplateNode::DynamicText { .. } => {
-                let attrs = FxHashMap::default();
+                let mut attrs = FxHashMap::default();
+                attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
 
                 let node_id = self
                     .tree
@@ -345,12 +367,12 @@ impl Dom {
                 dioxus::core::Mutation::CreateTextNode { value, id } => {
                     let mut attrs = FxHashMap::default();
                     attrs.insert(self.get_tag_or_attr_key("value"), value.into());
+                    attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
 
                     let node = NodeContext {
                         parent_id: None,
                         attrs,
                         computed_rect: epaint::Rect::ZERO,
-
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
                         tag: "text".into(),
@@ -540,7 +562,24 @@ impl Dom {
         }
     }
 
-    pub fn on_mouse_move(&mut self, position: PhysicalPosition<f64>) -> bool {
+    fn translate_mouse_pos(
+        pos_in_pixels: &PhysicalPosition<f64>,
+        screen_descriptor: &ScreenDescriptor,
+    ) -> epaint::Pos2 {
+        epaint::pos2(
+            pos_in_pixels.x as f32 / screen_descriptor.pixels_per_point,
+            pos_in_pixels.y as f32 / screen_descriptor.pixels_per_point,
+        )
+    }
+
+    /// Sets the hovered, focused and currently selected nodes
+    pub fn on_mouse_move(
+        &mut self,
+        position: &PhysicalPosition<f64>,
+        screen_descriptor: &ScreenDescriptor,
+    ) -> bool {
+        let position = Self::translate_mouse_pos(position, screen_descriptor);
+        self.cursor_state.current_position = position;
         self.hovered.clear();
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let node = dom.tree.get_node_context_mut(id).unwrap();
@@ -551,7 +590,42 @@ impl Dom {
             }
             true
         });
-        false
+
+        if self.cursor_state.drag_start_position.is_some()
+            && self.cursor_state.drag_end_position.is_none()
+        {
+            if let Some(start_position) = self.cursor_state.drag_start_position {
+                let min = Pos2::new(
+                    start_position.x.min(self.cursor_state.current_position.x),
+                    start_position.y.min(self.cursor_state.current_position.y),
+                );
+
+                let max = Pos2::new(
+                    start_position.x.max(self.cursor_state.current_position.x),
+                    start_position.y.max(self.cursor_state.current_position.y),
+                );
+
+                let selection_rect = epaint::Rect::from_min_max(min, max);
+
+                self.selection.clear();
+                self.traverse_tree(self.get_root_id(), &mut |dom, id| {
+                    let node = dom.tree.get_node_context_mut(id).unwrap();
+                    if node.tag != "text".into() {
+                        return true;
+                    }
+                    if node.computed_rect.intersects(selection_rect) {
+                        dom.selection.push(SelectedNode {
+                            node_id: id,
+                            parent_id: node.parent_id,
+                            computed_rect_when_selected: node.computed_rect,
+                        });
+                    }
+                    false
+                });
+            }
+        }
+
+        true
     }
 
     /// Scrolls the last node that is scrollable
@@ -593,6 +667,25 @@ impl Dom {
         scroll += node.scroll;
         node.scroll.x = scroll.x.max(0.0).min(total_scroll_width);
         node.scroll.y = scroll.y.max(0.0).min(total_scroll_height);
+
+        true
+    }
+
+    pub fn on_mouse_input(
+        &mut self,
+        button: &winit::event::MouseButton,
+        state: &winit::event::ElementState,
+    ) -> bool {
+        if button == &winit::event::MouseButton::Left
+            && state == &winit::event::ElementState::Pressed
+        {
+            self.cursor_state.drag_start_position = Some(self.cursor_state.current_position);
+            self.cursor_state.drag_end_position = None;
+        } else if button == &winit::event::MouseButton::Left
+            && state == &winit::event::ElementState::Released
+        {
+            self.cursor_state.drag_end_position = Some(self.cursor_state.current_position);
+        }
 
         true
     }

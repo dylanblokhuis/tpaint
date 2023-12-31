@@ -1,3 +1,4 @@
+use criterion::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 use dioxus::prelude::*;
 use tpaint::prelude::*;
@@ -19,23 +20,23 @@ fn app(cx: Scope) -> Element {
 }
 
 pub fn run_calculate_layout(app: &mut DomEventLoop) {
-    let mut vdom = app.vdom.lock().unwrap();
-    app.renderer.calculate_layout(&mut vdom);
+    let mut dom = app.dom.lock().unwrap();
+    app.renderer.calculate_layout(&mut dom);
 }
 
 pub fn run_paint_info(app: &mut DomEventLoop) {
-    let vdom = app.vdom.lock().unwrap();
-    let _ = app.renderer.get_paint_info(&vdom);
+    let mut dom = app.dom.lock().unwrap();
+    let _ = app.renderer.get_paint_info(&mut dom);
 }
 
-pub fn criterion_benchmark(_c: &mut Criterion) {
-    let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
+pub fn criterion_benchmark(c: &mut Criterion) {
+    let event_loop = EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
         .build(&event_loop)
         .unwrap();
 
-    let _app = DomEventLoop::spawn(
+    let mut app = DomEventLoop::spawn(
         app,
         window.inner_size(),
         window.scale_factor() as f32,

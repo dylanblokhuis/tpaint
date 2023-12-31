@@ -212,45 +212,6 @@ impl Tailwind {
         }
     }
 
-    // pub fn get_font_galley(
-    //     &self,
-    //     text: &str,
-    //     taffy: &TaffyTree,
-    //     fonts: &Fonts,
-    //     parent: &Tailwind,
-    // ) -> Arc<Galley> {
-    //     let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
-
-    //     fonts.layout(
-    //         text.to_string(),
-    //         parent.text.font.clone(),
-    //         parent.text.color,
-    //         max_width,
-    //     )
-    // }
-
-    // #[tracing::instrument(skip_all, name = "Tailwind::set_text_styling")]
-    // pub fn get_text_styling(
-    //     &mut self,
-    //     text: &str,
-    //     taffy: &mut TaffyTree,
-    //     fonts: &Fonts,
-    //     parent: &Tailwind,
-    // ) -> Style {
-    //     let galley = self.get_font_galley(text, taffy, fonts, parent);
-    //     let size = galley.size();
-    //     let style = Style {
-    //         size: Size {
-    //             width: Dimension::Length(size.x),
-    //             height: Dimension::Length(size.y),
-    //         },
-
-    //         ..Default::default()
-    //     };
-
-    //     style
-    // }
-
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {
         if class == "flex-col" {
             style.display = Display::Flex;
