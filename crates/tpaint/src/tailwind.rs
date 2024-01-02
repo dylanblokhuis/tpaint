@@ -101,11 +101,13 @@ impl Tailwind {
     }
 
     pub fn get_style(&mut self, class: &str, state: &StyleState) -> Style {
-        let classes = class.split_whitespace();
         let mut layout_style = Style::default();
 
-        for class in classes {
+        for class in class.split_whitespace() {
             self.handle_class(&mut layout_style, &COLORS, class);
+        }
+
+        for class in class.split_whitespace() {
             if state.hovered {
                 if let Some(class) = class.strip_prefix("hover:") {
                     self.handle_class(&mut layout_style, &COLORS, class);

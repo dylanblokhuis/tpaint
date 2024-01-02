@@ -2,6 +2,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
+mod components;
 mod dom;
 mod event_loop;
 mod events;
@@ -70,9 +71,13 @@ pub mod prelude {
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
 
-            // pub const text_cursor: AttributeDescription = ("cursor", None, false);
-            // pub const text_cursor_visible: AttributeDescription = ("cursor_visible", None, false);
-            // pub const selection_start: AttributeDescription = ("selection_start", None, false);
+            pub const text_cursor: AttributeDescription = ("text_cursor", None, false);
+            pub const text_cursor_visible: AttributeDescription =
+                ("text_cursor_visible", None, false);
+            pub const text_selection_start: AttributeDescription =
+                ("text_selection_start", None, false);
+            pub const global_selection_mode: AttributeDescription =
+                ("global_selection_mode", None, false);
         }
 
         #[cfg(feature = "images")]
@@ -86,45 +91,45 @@ pub mod prelude {
             pub const src: AttributeDescription = ("src", None, false);
         }
 
-        // pub mod events {
-        //     impl_event! [
-        //         crate::vdom::events::PointerInput;
-        //         onclick
-        //         onmouseup
-        //         onmousedown
-        //     ];
+        pub mod events {
+            impl_event! [
+                crate::events::ClickEvent;
+                onclick
+                onmouseup
+                onmousedown
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::PointerMove;
-        //         onmousemove
-        //     ];
+            impl_event! [
+                crate::events::MouseMoveEvent;
+                onmousemove
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::Text;
-        //         oninput
-        //     ];
+            impl_event! [
+                crate::events::InputEvent;
+                oninput
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::KeyInput;
-        //         onkeydown
-        //         onkeyup
-        //     ];
+            impl_event! [
+                crate::events::KeyInput;
+                onkeydown
+                onkeyup
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::Focus;
-        //         onfocus
-        //     ];
+            impl_event! [
+                crate::events::FocusEvent;
+                onfocus
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::Blur;
-        //         onblur
-        //     ];
+            impl_event! [
+                crate::events::BlurEvent;
+                onblur
+            ];
 
-        //     impl_event! [
-        //         crate::vdom::events::Drag;
-        //         ondrag
-        //     ];
-        // }
+            impl_event! [
+                crate::events::DragEvent;
+                ondrag
+            ];
+        }
     }
 }
 

@@ -1,15 +1,19 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicUsize, Arc};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use epaint::{Pos2, Vec2};
+use epaint::{text::cursor::Cursor, Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
+use tokio::sync::mpsc::UnboundedSender;
 use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
 
-use crate::renderer::ScreenDescriptor;
+use crate::{
+    events::{self, DomEvent},
+    renderer::{Renderer, ScreenDescriptor},
+};
 
 use super::tailwind::{StyleState, Tailwind};
 
@@ -22,12 +26,12 @@ pub struct NodeContext {
     pub computed_rect: epaint::Rect,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy, Debug)]
 pub struct KeyboardState {
     pub modifiers: winit::event::ModifiersState,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 pub struct CursorState {
     pub current_position: Pos2,
     pub drag_start_position: Option<Pos2>,
@@ -42,6 +46,21 @@ pub struct SelectedNode {
     pub computed_rect_when_selected: epaint::Rect,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct FocusedNode {
+    pub node_id: NodeId,
+    pub text_cursor: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomState {
+    pub hovered: Vec<NodeId>,
+    pub focused: Option<FocusedNode>,
+    pub selection: Vec<SelectedNode>,
+    pub keyboard_state: KeyboardState,
+    pub cursor_state: CursorState,
+}
+
 pub struct Dom {
     pub tree: TaffyTree<NodeContext>,
     templates: FxHashMap<String, Vec<NodeId>>,
@@ -49,15 +68,12 @@ pub struct Dom {
     pub element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
-    pub hovered: Vec<NodeId>,
-    pub focused: Option<NodeId>,
-    pub selection: Vec<SelectedNode>,
-    pub keyboard_state: KeyboardState,
-    pub cursor_state: CursorState,
+    pub state: DomState,
+    event_sender: UnboundedSender<DomEvent>,
 }
 
 impl Dom {
-    pub fn new() -> Dom {
+    pub fn new(event_sender: UnboundedSender<DomEvent>) -> Dom {
         let mut tree = TaffyTree::<NodeContext>::new();
 
         let mut tw = Tailwind::default();
@@ -93,11 +109,14 @@ impl Dom {
             element_id_mapping,
             common_tags_and_attr_keys,
             event_listeners: Default::default(),
-            focused: None,
-            hovered: vec![],
-            selection: vec![],
-            keyboard_state: Default::default(),
-            cursor_state: Default::default(),
+            state: DomState {
+                focused: None,
+                hovered: vec![],
+                selection: vec![],
+                keyboard_state: Default::default(),
+                cursor_state: Default::default(),
+            },
+            event_sender,
         }
     }
 
@@ -562,6 +581,31 @@ impl Dom {
         }
     }
 
+    fn send_event_to_element(&self, node_id: NodeId, listener: &str, event: Arc<events::Event>) {
+        let element_id = self
+            .element_id_mapping
+            .iter()
+            .find(|(_, id)| **id == node_id)
+            .unwrap()
+            .0;
+        let Some(listeners) = self.event_listeners.get(&element_id) else {
+            return;
+        };
+
+        let Some(name) = listeners.iter().find(|name| (name as &str) == listener) else {
+            return;
+        };
+
+        self.event_sender
+            .send(DomEvent {
+                name: name.clone(),
+                data: event.clone(),
+                element_id: *element_id,
+                bubbles: true,
+            })
+            .unwrap();
+    }
+
     fn translate_mouse_pos(
         pos_in_pixels: &PhysicalPosition<f64>,
         screen_descriptor: &ScreenDescriptor,
@@ -579,58 +623,181 @@ impl Dom {
         screen_descriptor: &ScreenDescriptor,
     ) -> bool {
         let position = Self::translate_mouse_pos(position, screen_descriptor);
-        self.cursor_state.current_position = position;
-        self.hovered.clear();
+        self.state.cursor_state.current_position = position;
+        self.state.hovered.clear();
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let node = dom.tree.get_node_context_mut(id).unwrap();
             let rect = node.computed_rect;
             let is_hovered = rect.contains(epaint::Pos2::new(position.x as f32, position.y as f32));
             if is_hovered {
-                dom.hovered.push(id);
+                dom.state.hovered.push(id);
             }
             true
         });
 
-        if self.cursor_state.drag_start_position.is_some()
-            && self.cursor_state.drag_end_position.is_none()
+        if self.state.cursor_state.drag_start_position.is_some()
+            && self.state.cursor_state.drag_end_position.is_none()
         {
-            if let Some(start_position) = self.cursor_state.drag_start_position {
+            if let Some(start_position) = self.state.cursor_state.drag_start_position {
                 let min = Pos2::new(
-                    start_position.x.min(self.cursor_state.current_position.x),
-                    start_position.y.min(self.cursor_state.current_position.y),
+                    start_position
+                        .x
+                        .min(self.state.cursor_state.current_position.x),
+                    start_position
+                        .y
+                        .min(self.state.cursor_state.current_position.y),
                 );
 
                 let max = Pos2::new(
-                    start_position.x.max(self.cursor_state.current_position.x),
-                    start_position.y.max(self.cursor_state.current_position.y),
+                    start_position
+                        .x
+                        .max(self.state.cursor_state.current_position.x),
+                    start_position
+                        .y
+                        .max(self.state.cursor_state.current_position.y),
                 );
 
                 let selection_rect = epaint::Rect::from_min_max(min, max);
 
-                self.selection.clear();
+                self.state.selection.clear();
                 self.traverse_tree(self.get_root_id(), &mut |dom, id| {
                     let node = dom.tree.get_node_context_mut(id).unwrap();
                     if node.tag != "text".into() {
                         return true;
                     }
                     if node.computed_rect.intersects(selection_rect) {
-                        dom.selection.push(SelectedNode {
+                        dom.state.selection.push(SelectedNode {
                             node_id: id,
                             parent_id: node.parent_id,
                             computed_rect_when_selected: node.computed_rect,
                         });
                     }
+
                     false
                 });
             }
+
+            self.handle_manual_selection();
         }
+
+        true
+    }
+
+    pub fn handle_manual_selection(&mut self) {
+        // on input fields you want to select the text on the mouse position, but since the text is not as big as the parent container we need to check this.
+        // let mut only_parent_of_text_clicked = None;
+
+        // self.traverse_tree_with_parent(self.get_root_id(), None, &mut |dom, node_id, parent_id| {
+        //     // if !specific_nodes.is_empty() && !specific_nodes.contains(&node.id) {
+        //     //     return true;
+        //     // }
+        //     let [node, parent] = dom
+        //         .tree
+        //         .get_disjoint_node_context_mut([node_id, parent_id.unwrap()])
+        //         .unwrap();
+
+        //     if node.tag == "text".into() {
+        //         only_parent_of_text_clicked = None;
+        //         let relative_position = dom.state.cursor_state.current_position.to_vec2()
+        //             - node.computed_rect.min.to_vec2();
+        //         let text = node.attrs.get("value").unwrap();
+        //         let galley = node.styling.get_font_galley(
+        //             text,
+        //             &self.renderer.taffy,
+        //             &self.renderer.fonts,
+        //             &parent.unwrap().styling,
+        //         );
+        //         let cursor = galley.cursor_from_pos(relative_position);
+        //         self.cursor_state.cursor = cursor;
+        //         return false;
+        //     }
+
+        //     if node.attrs.get("cursor").is_some() {
+        //         only_parent_of_text_clicked = Some(node_id);
+
+        //         return true;
+        //     }
+
+        //     true
+        // });
+
+        // if let Some(parent_id) = only_parent_of_text_clicked {
+        //     let parent = vdom.nodes.get(parent_id).unwrap();
+        //     let node = vdom.nodes.get(*parent.children.first().unwrap()).unwrap();
+
+        //     let relative_position = mouse_pos.to_vec2() - node.computed_rect.min.to_vec2();
+        //     let text = node.attrs.get("value").unwrap();
+        //     let galley = node.styling.get_font_galley(
+        //         text,
+        //         &self.renderer.taffy,
+        //         &self.renderer.fonts,
+        //         &parent.styling,
+        //     );
+        //     let cursor = galley.cursor_from_pos(relative_position);
+        //     self.cursor_state.cursor = cursor;
+        // }
+    }
+
+    pub fn on_mouse_input(
+        &mut self,
+        renderer: &Renderer,
+        button: &winit::event::MouseButton,
+        state: &winit::event::ElementState,
+    ) -> bool {
+        if button == &winit::event::MouseButton::Left
+            && state == &winit::event::ElementState::Pressed
+        {
+            self.state.cursor_state.drag_start_position =
+                Some(self.state.cursor_state.current_position);
+            self.state.cursor_state.drag_end_position = None;
+        } else if button == &winit::event::MouseButton::Left
+            && state == &winit::event::ElementState::Released
+        {
+            self.state.cursor_state.drag_end_position =
+                Some(self.state.cursor_state.current_position);
+        }
+
+        self.state.focused = if let Some(node_id) = self.state.hovered.last().copied() {
+            let node = FocusedNode {
+                node_id,
+                text_cursor: {
+                    let node = self.tree.get_node_context_mut(node_id).unwrap();
+                    let parent_id = node.parent_id.unwrap();
+                    if node.tag != "text".into() {
+                        let [node, parent] = self
+                            .tree
+                            .get_disjoint_node_context_mut([node_id, parent_id])
+                            .unwrap();
+                        let galley = renderer.get_text_galley(&node, &parent);
+                        let relative_pos =
+                            self.state.cursor_state.current_position - node.computed_rect.min;
+
+                        Some(galley.cursor_from_pos(relative_pos).ccursor.index)
+                    } else {
+                        None
+                    }
+                },
+            };
+
+            self.send_event_to_element(
+                node_id,
+                "focus",
+                Arc::new(events::Event::Focus(events::FocusEvent {
+                    state: self.state.clone(),
+                })),
+            );
+
+            Some(node)
+        } else {
+            None
+        };
 
         true
     }
 
     /// Scrolls the last node that is scrollable
     pub fn on_scroll(&mut self, delta: &MouseScrollDelta) -> bool {
-        let Some(scroll_node) = self.hovered.iter().rev().find_map(|id| {
+        let Some(scroll_node) = self.state.hovered.iter().rev().find_map(|id| {
             let style = self.tree.style(*id).unwrap();
 
             if style.overflow.x != Overflow::Scroll && style.overflow.y != Overflow::Scroll {
@@ -646,7 +813,7 @@ impl Dom {
         let mut scroll = Vec2::ZERO;
         match delta {
             MouseScrollDelta::LineDelta(_x, y) => {
-                if self.keyboard_state.modifiers.shift() {
+                if self.state.keyboard_state.modifiers.shift() {
                     scroll.x -= y * tick_size;
                 } else {
                     scroll.y -= y * tick_size;
@@ -667,25 +834,6 @@ impl Dom {
         scroll += node.scroll;
         node.scroll.x = scroll.x.max(0.0).min(total_scroll_width);
         node.scroll.y = scroll.y.max(0.0).min(total_scroll_height);
-
-        true
-    }
-
-    pub fn on_mouse_input(
-        &mut self,
-        button: &winit::event::MouseButton,
-        state: &winit::event::ElementState,
-    ) -> bool {
-        if button == &winit::event::MouseButton::Left
-            && state == &winit::event::ElementState::Pressed
-        {
-            self.cursor_state.drag_start_position = Some(self.cursor_state.current_position);
-            self.cursor_state.drag_end_position = None;
-        } else if button == &winit::event::MouseButton::Left
-            && state == &winit::event::ElementState::Released
-        {
-            self.cursor_state.drag_end_position = Some(self.cursor_state.current_position);
-        }
 
         true
     }

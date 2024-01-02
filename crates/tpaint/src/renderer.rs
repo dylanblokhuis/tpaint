@@ -1,9 +1,9 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TextureId,
+    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Galley, Pos2, Rect, Shape, TextureId,
     TextureManager, Vec2, WHITE_UV,
 };
 
@@ -80,8 +80,13 @@ impl Renderer {
             dom.traverse_tree(root_id, &mut |dom, id| {
                 let node = dom.tree.get_node_context_mut(id).unwrap();
                 let style_state = StyleState {
-                    hovered: dom.hovered.contains(&id),
-                    focused: dom.focused.map(|id2| id2 == id).unwrap_or(false),
+                    hovered: dom.state.hovered.contains(&id),
+                    focused: dom
+                        .state
+                        .focused
+                        .as_ref()
+                        .map(|id2| id2.node_id == id)
+                        .unwrap_or(false),
                 };
 
                 let class = node.attrs.get("class");
@@ -464,8 +469,8 @@ impl Renderer {
 
         // get all computed rects
         let root_id = dom.get_root_id();
-        let cursor_state = dom.cursor_state.clone();
-        let selection = dom.selection.clone();
+        let cursor_state = dom.state.cursor_state.clone();
+        let selection = dom.state.selection.clone();
 
         dom.traverse_tree_mut_with_parent_and_data(
             root_id,
@@ -865,6 +870,17 @@ impl Renderer {
         }
     }
 
+    pub fn get_text_galley(&self, node: &NodeContext, parent: &NodeContext) -> Arc<Galley> {
+        let galley = self.fonts.layout(
+            node.attrs.get("value").unwrap().clone().to_string(),
+            parent.styling.text.font.clone(),
+            parent.styling.text.color,
+            node.computed_rect.width(),
+        );
+
+        return galley;
+    }
+
     pub fn get_selection_shape(
         &mut self,
         cursor_state: &CursorState,
@@ -912,9 +928,6 @@ impl Renderer {
             .unwrap_or(cursor_state.current_position)
             .to_vec2()
             - selected_node.computed_rect_when_selected.min.to_vec2();
-
-        dbg!(selection_start);
-        dbg!(selection_end);
 
         let start_cursor = galley.cursor_from_pos(selection_start);
         let end_cursor = galley.cursor_from_pos(selection_end);

@@ -13,11 +13,8 @@ use crate::{
     dom::{Dom},
 };
 
-
-
 pub struct DomEventLoop {
     pub dom: Arc<Mutex<Dom>>,
-    dom_event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
     pub update_scope_sender: tokio::sync::mpsc::UnboundedSender<ScopeId>,
     pub renderer: Renderer,
 }
@@ -26,7 +23,7 @@ impl DomEventLoop {
 
     pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
-        let dom = Arc::new(Mutex::new(Dom::new()));
+        let dom = Arc::new(Mutex::new(Dom::new(dom_event_sender.clone())));
     
         #[cfg(all(feature = "hot-reload", debug_assertions))]
         let (hot_reload_tx, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<dioxus_hot_reload::HotReloadMsg>();
@@ -46,7 +43,6 @@ impl DomEventLoop {
             move || {
                 let mut vdom = VirtualDom::new(app).with_root_context(root_context);
                 let mutations = vdom.rebuild();
-                dbg!(&mutations);
                 dom.lock().unwrap().apply_mutations(mutations);
                 event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
     
@@ -91,7 +87,6 @@ impl DomEventLoop {
     
         DomEventLoop {
             dom,
-            dom_event_sender,
             update_scope_sender,
             renderer: Renderer::new(window_size, pixels_per_point, FontDefinitions::default()),
         }
@@ -121,7 +116,7 @@ impl DomEventLoop {
             }
             WindowEvent::MouseInput { button, state, .. } => {
                 let mut dom = self.dom.lock().unwrap();
-                repaint = dom.on_mouse_input(button, state);
+                repaint = dom.on_mouse_input(&self.renderer, button, state);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let mut dom = self.dom.lock().unwrap();
@@ -133,7 +128,7 @@ impl DomEventLoop {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 let mut dom = self.dom.lock().unwrap();
-                dom.keyboard_state.modifiers = *modifiers;
+                dom.state.keyboard_state.modifiers = *modifiers;
             }
             _ => {}
         }
