@@ -1,9 +1,9 @@
-use std::{sync::Arc, time::Instant};
+use std::{time::Instant};
 
 use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
-    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Galley, Pos2, Rect, Shape, TextureId,
+    vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Pos2, Rect, Shape, TextureId,
     TextureManager, Vec2, WHITE_UV, Tessellator, TessellationOptions, Primitive,
 };
 
@@ -34,7 +34,7 @@ impl Renderer {
         pixels_per_point: f32,
         definitions: FontDefinitions,
     ) -> Renderer {
-        let fonts = Fonts::new(pixels_per_point, 1024, definitions);
+        let fonts = Fonts::new(pixels_per_point, 4096, definitions);
         let mut tex_manager = TextureManager::default();
         let font_image_delta: Option<_> = fonts.font_image_delta();
         if let Some(font_image_delta) = font_image_delta {
@@ -157,7 +157,7 @@ impl Renderer {
             known_dimensions: taffy::geometry::Size<Option<f32>>,
             available_space: taffy::geometry::Size<taffy::style::AvailableSpace>,
             node_context: Option<&mut NodeContext>,
-            font_metrics: &Fonts,
+            fonts: &Fonts,
         ) -> Size<f32> {
             if let Size { width: Some(width), height: Some(height) } = known_dimensions {
                 return Size { width, height };
@@ -171,14 +171,14 @@ impl Renderer {
                     }
                   
                     let galley = if let AvailableSpace::Definite(space) = available_space.width {
-                        font_metrics.layout(
+                        fonts.layout(
                             node_context.attrs.get("value").unwrap_or(&"".into()).to_string(),
                             node_context.styling.text.font.clone(),
                             node_context.styling.text.color,
                             space
                         )
                     } else {
-                        font_metrics.layout_no_wrap(
+                        fonts.layout_no_wrap(
                             node_context.attrs.get("value").unwrap_or(&"".into()).to_string(),
                             node_context.styling.text.font.clone(),
                             node_context.styling.text.color,
@@ -186,6 +186,7 @@ impl Renderer {
                     };
                 
                     let size = galley.size();
+                    node_context.computed.galley = Some(galley);
 
                     Size {
                         width: size.x,
@@ -245,33 +246,10 @@ impl Renderer {
                 };
 
                 let node = dom.tree.get_node_context_mut(id).unwrap();
-                node.computed_rect = rect;
+                node.computed.rect = rect;
                 (true, location)
             },
         );
-    }
-
-    fn get_text_shape(
-        &self,
-        node: &NodeContext,
-        parent_node: &NodeContext,
-        parent_clip: Rect,
-    ) -> ClippedShape {
-        let parent = &parent_node.styling;
-
-        let galley = self.fonts.layout(
-            node.attrs.get("value").unwrap().clone().to_string(),
-            parent.text.font.clone(),
-            parent.text.color,
-            node.computed_rect.width(),
-        );
-
-        let shape = Shape::galley(node.computed_rect.min, galley, Color32::BLACK);
-
-        ClippedShape {
-            clip_rect: parent_clip,
-            shape,
-        }
     }
 
     fn get_rect_shape(&self, node: &NodeContext, parent_clip: Rect) -> ClippedShape {
@@ -279,10 +257,10 @@ impl Renderer {
         let rounding = styling.border.radius;
         let rect = epaint::Rect {
             min: epaint::Pos2 {
-                x: node.computed_rect.min.x + styling.border.width / 2.0,
-                y: node.computed_rect.min.y + styling.border.width / 2.0,
+                x: node.computed.rect.min.x + styling.border.width / 2.0,
+                y: node.computed.rect.min.y + styling.border.width / 2.0,
             },
-            max: node.computed_rect.max,
+            max: node.computed.rect.max,
         };
 
         let shape = epaint::Shape::Rect(epaint::RectShape {
@@ -322,8 +300,10 @@ impl Renderer {
     ) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         let now = Instant::now();
         self.calculate_layout(dom);
+        println!("layout took: {:?}", now.elapsed());
 
         // get all computed rects
+        let now = Instant::now();
         let root_id = dom.get_root_id();
         let cursor_state = dom.state.cursor_state.clone();
         let selection = dom.state.selection.clone();
@@ -333,36 +313,27 @@ impl Renderer {
             None,
             &None,
             &mut |dom, id, parent_id, parent_clip| {
-                let style = dom.tree.style(id).unwrap().clone();
-                let layout = dom.tree.layout(id).unwrap().clone();
-                let (node, parent) = if let Some(parent_id) = parent_id {
-                    let [node, parent] = dom
-                        .tree
-                        .get_disjoint_node_context_mut([id, parent_id])
-                        .unwrap();
-                    (node, Some(parent))
-                } else {
-                    (dom.tree.get_node_context_mut(id).unwrap(), None)
-                };
+                let node = dom.tree.get_node_context(id).unwrap();
+                let style = dom.tree.style(id).unwrap();
 
                 // we need to make sure the scrollbar doesnt get overwritten
                 let node_clip = {
                     epaint::Rect {
-                        min: node.computed_rect.min,
+                        min: node.computed.rect.min,
                         max: epaint::Pos2 {
                             x: if style.overflow.y == Overflow::Scroll
                                 && style.scrollbar_width != 0.0
                             {
-                                node.computed_rect.max.x - style.scrollbar_width
+                                node.computed.rect.max.x - style.scrollbar_width
                             } else {
-                                node.computed_rect.max.x
+                                node.computed.rect.max.x
                             },
                             y: if style.overflow.x == Overflow::Scroll
                                 && style.scrollbar_width != 0.0
                             {
-                                node.computed_rect.max.y - style.scrollbar_width
+                                node.computed.rect.max.y - style.scrollbar_width
                             } else {
-                                node.computed_rect.max.y
+                                node.computed.rect.max.y
                             },
                         },
                     }
@@ -385,7 +356,7 @@ impl Renderer {
 
                 match &(*node.tag) {
                     "text" => {
-                        let shape = self.get_text_shape(node, parent.as_ref().unwrap(), clip);
+                        let shape = Shape::galley(node.computed.rect.min, node.computed.galley.clone().expect("Galley should've been set in the calculate_layout step"), Color32::BLACK);
 
                         // if let Some(cursor) = parent.attrs.get("cursor") {
                         //     let epaint::Shape::Text(text_shape) = &shape.shape else {
@@ -415,6 +386,7 @@ impl Renderer {
                         //     }
                         // }
 
+                        let parent = parent_id.map(|parent_id| dom.tree.get_node_context(parent_id).unwrap());
                         let selection_shapes = self.get_selection_shape(
                             &cursor_state,
                             &selection,
@@ -423,7 +395,10 @@ impl Renderer {
                             parent.unwrap(),
                         );
                         self.shapes.extend(selection_shapes);
-                        self.shapes.push(shape);
+                        self.shapes.push(ClippedShape {
+                            clip_rect: clip,
+                            shape,
+                        });
                     }
                     _ => {
                         self.shapes.push(self.get_rect_shape(node, clip));
@@ -432,6 +407,7 @@ impl Renderer {
                             && style.overflow.y == Overflow::Scroll;
 
                         if style.scrollbar_width > 0.0 && style.overflow.y == Overflow::Scroll {
+                            let layout = dom.tree.layout(id).unwrap();
                             let (container_shape, button_shape) = self.get_scrollbar_shape(
                                 node,
                                 &layout,
@@ -447,6 +423,7 @@ impl Renderer {
                         }
 
                         if style.scrollbar_width > 0.0 && style.overflow.x == Overflow::Scroll {
+                            let layout = dom.tree.layout(id).unwrap();
                             let (container_shape, button_shape) = self.get_scrollbar_shape(
                                 node,
                                 &layout,
@@ -475,7 +452,9 @@ impl Renderer {
                 (true, Some(clip))
             },
         );
+        println!("shape creation took: {:?}", now.elapsed());
 
+        let now = Instant::now();
         let texture_delta = {
             let font_image_delta = self.fonts.font_image_delta();
             if let Some(font_image_delta) = font_image_delta {
@@ -486,6 +465,10 @@ impl Renderer {
             self.tex_manager.take_delta()
         };
 
+        println!("delta creation took: {:?}", now.elapsed());
+
+
+        let now = Instant::now();
         let mut clipped_primitives: Vec<ClippedPrimitive> = Vec::with_capacity(self.shapes.len());
         for clipped_shape in std::mem::take(&mut self.shapes) {
             self.tessellator.tessellate_clipped_shape(clipped_shape, &mut clipped_primitives);
@@ -512,8 +495,8 @@ impl Renderer {
         are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
-        let location = node.computed_rect.min;
-        let size = node.computed_rect.size();
+        let location = node.computed.rect.min;
+        let size = node.computed.rect.size();
 
         if horizontal {
             epaint::Rect {
@@ -561,8 +544,8 @@ impl Renderer {
         are_both_scrollbars_visible: bool,
     ) -> Rect {
         let styling = &node.styling;
-        let location = node.computed_rect.min;
-        let size = node.computed_rect.size();
+        let location = node.computed.rect.min;
+        let size = node.computed.rect.size();
 
         let button_width = bar_width * 0.50; // 50% of bar_width
 
@@ -725,17 +708,6 @@ impl Renderer {
         }
     }
 
-    pub fn get_text_galley(&self, node: &NodeContext, parent: &NodeContext) -> Arc<Galley> {
-        let galley = self.fonts.layout(
-            node.attrs.get("value").unwrap().clone().to_string(),
-            parent.styling.text.font.clone(),
-            parent.styling.text.color,
-            node.computed_rect.width(),
-        );
-
-        return galley;
-    }
-
     pub fn get_selection_shape(
         &mut self,
         cursor_state: &CursorState,
@@ -754,7 +726,7 @@ impl Renderer {
             return vec![];
         };
 
-        let parent_clip: Rect = parent.computed_rect;
+        let parent_clip: Rect = parent.computed.rect;
 
         let galley = self.fonts.layout(
             node.attrs.get("value").unwrap().clone().to_string(),
@@ -764,7 +736,7 @@ impl Renderer {
         );
 
         println!(
-            "node.computed_rect: {:?}",
+            "node.computed.rect: {:?}",
             selected_node.computed_rect_when_selected
         );
         println!(
@@ -809,8 +781,8 @@ impl Renderer {
                 row.rect.right() + newline_size
             };
             let rect = Rect::from_min_max(
-                node.computed_rect.min + vec2(left, row.min_y()),
-                node.computed_rect.min + vec2(right, row.max_y()),
+                node.computed.rect.min + vec2(left, row.min_y()),
+                node.computed.rect.min + vec2(right, row.max_y()),
             );
             shapes.push(ClippedShape {
                 clip_rect: parent_clip,

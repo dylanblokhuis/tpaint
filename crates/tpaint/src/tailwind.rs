@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use epaint::emath::Align2;
 use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Galley, Rounding, TextureManager};
+use epaint::{Color32, ColorImage, FontFamily, FontId, Rounding, TextureManager};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;

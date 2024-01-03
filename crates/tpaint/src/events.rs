@@ -1,11 +1,11 @@
 use std::{any::Any, rc::Rc, sync::Arc};
 
 use dioxus::core::ElementId;
-use epaint::{text::cursor::Cursor, Pos2};
-use taffy::NodeId;
-use winit::event::{ElementState, ModifiersState, MouseButton};
 
-use crate::dom::{CursorState, DomState, FocusedNode, KeyboardState, SelectedNode};
+
+use winit::event::{ModifiersState, MouseButton};
+
+use crate::dom::{DomState};
 
 #[derive(Debug, Clone)]
 pub enum Event {

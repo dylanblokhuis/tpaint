@@ -1,10 +1,10 @@
-use std::sync::{atomic::AtomicUsize, Arc};
+use std::sync::{Arc};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use epaint::{text::cursor::Cursor, Pos2, Vec2};
+use epaint::{Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
 use tokio::sync::mpsc::UnboundedSender;
@@ -17,13 +17,29 @@ use crate::{
 
 use super::tailwind::{StyleState, Tailwind};
 
+pub struct Computed {
+    /// The computed rect of the node, ready to be drawn
+    pub rect: epaint::Rect,
+    /// The computed galley of the text node, ready to be drawn
+    pub galley: Option<Arc<epaint::Galley>>,
+}
+
+impl Default for Computed {
+    fn default() -> Self {
+        Self {
+            rect: epaint::Rect::from_min_size(epaint::Pos2::ZERO, epaint::Vec2::ZERO),
+            galley: None,
+        }
+    }
+}
+
 pub struct NodeContext {
     pub tag: Arc<str>,
     pub parent_id: Option<NodeId>,
     pub attrs: FxHashMap<Arc<str>, Arc<str>>,
     pub styling: Tailwind,
     pub scroll: Vec2,
-    pub computed_rect: epaint::Rect,
+    pub computed: Computed,
 }
 
 #[derive(Default, Clone, Copy, Debug)]
@@ -88,7 +104,7 @@ impl Dom {
                     attrs: Default::default(),
                     styling: tw,
                     scroll: Default::default(),
-                    computed_rect: epaint::Rect::ZERO,
+                    computed: Default::default(),
                 },
             )
             .unwrap();
@@ -217,7 +233,7 @@ impl Dom {
                         .collect(),
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
-                    computed_rect: epaint::Rect::ZERO,
+                    computed: Default::default(),
                 };
                 let style = self.get_initial_styling(&mut node);
                 let node_id = self.tree.new_leaf_with_context(style, node).unwrap();
@@ -240,7 +256,7 @@ impl Dom {
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
-                    computed_rect: epaint::Rect::ZERO,
+                    computed: Default::default(),
                 };
                 let style = self.get_initial_styling(&mut node);
                 let node_id = self.tree.new_leaf_with_context(style, node).unwrap();
@@ -259,7 +275,7 @@ impl Dom {
                             attrs: FxHashMap::default(),
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
-                            computed_rect: epaint::Rect::ZERO,
+                            computed: Default::default(),
                         },
                     )
                     .unwrap();
@@ -281,7 +297,7 @@ impl Dom {
                             attrs,
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
-                            computed_rect: epaint::Rect::ZERO,
+                            computed: Default::default(),
                         },
                     )
                     .unwrap();
@@ -322,7 +338,7 @@ impl Dom {
                     let node = NodeContext {
                         parent_id: None,
                         attrs: FxHashMap::default(),
-                        computed_rect: epaint::Rect::ZERO,
+                        computed: Default::default(),
 
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
@@ -391,7 +407,7 @@ impl Dom {
                     let node = NodeContext {
                         parent_id: None,
                         attrs,
-                        computed_rect: epaint::Rect::ZERO,
+                        computed: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
                         tag: "text".into(),
@@ -480,7 +496,7 @@ impl Dom {
             attrs,
             styling,
             scroll: Vec2::ZERO,
-            computed_rect: epaint::Rect::ZERO,
+            computed: Default::default(),
         };
         let style = self.get_initial_styling(&mut node);
 
@@ -627,7 +643,7 @@ impl Dom {
         self.state.hovered.clear();
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let node = dom.tree.get_node_context_mut(id).unwrap();
-            let rect = node.computed_rect;
+            let rect = node.computed.rect;
             let is_hovered = rect.contains(epaint::Pos2::new(position.x as f32, position.y as f32));
             if is_hovered {
                 dom.state.hovered.push(id);
@@ -665,11 +681,11 @@ impl Dom {
                     if node.tag != "text".into() {
                         return true;
                     }
-                    if node.computed_rect.intersects(selection_rect) {
+                    if node.computed.rect.intersects(selection_rect) {
                         dom.state.selection.push(SelectedNode {
                             node_id: id,
                             parent_id: node.parent_id,
-                            computed_rect_when_selected: node.computed_rect,
+                            computed_rect_when_selected: node.computed.rect,
                         });
                     }
 
@@ -699,7 +715,7 @@ impl Dom {
         //     if node.tag == "text".into() {
         //         only_parent_of_text_clicked = None;
         //         let relative_position = dom.state.cursor_state.current_position.to_vec2()
-        //             - node.computed_rect.min.to_vec2();
+        //             - node.computed.rect.min.to_vec2();
         //         let text = node.attrs.get("value").unwrap();
         //         let galley = node.styling.get_font_galley(
         //             text,
@@ -725,7 +741,7 @@ impl Dom {
         //     let parent = vdom.nodes.get(parent_id).unwrap();
         //     let node = vdom.nodes.get(*parent.children.first().unwrap()).unwrap();
 
-        //     let relative_position = mouse_pos.to_vec2() - node.computed_rect.min.to_vec2();
+        //     let relative_position = mouse_pos.to_vec2() - node.computed.rect.min.to_vec2();
         //     let text = node.attrs.get("value").unwrap();
         //     let galley = node.styling.get_font_galley(
         //         text,
@@ -740,7 +756,7 @@ impl Dom {
 
     pub fn on_mouse_input(
         &mut self,
-        renderer: &Renderer,
+        _renderer: &Renderer,
         button: &winit::event::MouseButton,
         state: &winit::event::ElementState,
     ) -> bool {
@@ -762,17 +778,15 @@ impl Dom {
                 node_id,
                 text_cursor: {
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
-                    let parent_id = node.parent_id.unwrap();
                     if node.tag != "text".into() {
-                        let [node, parent] = self
+                        let node = self
                             .tree
-                            .get_disjoint_node_context_mut([node_id, parent_id])
+                            .get_node_context_mut(node_id)
                             .unwrap();
-                        let galley = renderer.get_text_galley(&node, &parent);
                         let relative_pos =
-                            self.state.cursor_state.current_position - node.computed_rect.min;
+                            self.state.cursor_state.current_position - node.computed.rect.min;
 
-                        Some(galley.cursor_from_pos(relative_pos).ccursor.index)
+                        Some(node.computed.galley.as_ref().unwrap().cursor_from_pos(relative_pos).ccursor.index)
                     } else {
                         None
                     }
