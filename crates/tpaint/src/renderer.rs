@@ -60,10 +60,14 @@ impl Renderer {
         let root_id = dom.get_root_id();
         let available_space = Size {
             width: taffy::style::AvailableSpace::Definite(
-                self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
+                (self.screen_descriptor.size.width as f32
+                    / self.screen_descriptor.pixels_per_point)
+                    .ceil(),
             ),
             height: taffy::style::AvailableSpace::Definite(
-                self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
+                (self.screen_descriptor.size.height as f32
+                    / self.screen_descriptor.pixels_per_point)
+                    .ceil(),
             ),
         };
 
@@ -72,10 +76,11 @@ impl Renderer {
             let _guard =
                 tracing::trace_span!("Renderer::calculate_layout rect layout pass").entered();
 
-            dom.tree.get_node_context_mut(root_id).unwrap().attrs.insert(
-                "class".into(),
-                "w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default".into()
-            );
+            dom.tree
+                .get_node_context_mut(root_id)
+                .unwrap()
+                .attrs
+                .insert("class".into(), "w-full h-full".into());
 
             dom.traverse_tree(root_id, &mut |dom, id| {
                 let node = dom.tree.get_node_context_mut(id).unwrap();
@@ -644,7 +649,7 @@ impl Renderer {
             std::mem::take(&mut self.shapes),
         );
 
-        println!("paint info took: {:?}", now.elapsed());
+        // println!("paint info took: {:?}", now.elapsed());
 
         (primitives, texture_delta, &self.screen_descriptor)
     }

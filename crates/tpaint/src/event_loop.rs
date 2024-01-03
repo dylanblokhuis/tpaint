@@ -43,6 +43,7 @@ impl DomEventLoop {
             move || {
                 let mut vdom = VirtualDom::new(app).with_root_context(root_context);
                 let mutations = vdom.rebuild();
+                dbg!(&mutations);
                 dom.lock().unwrap().apply_mutations(mutations);
                 event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
     

@@ -76,17 +76,14 @@ impl Dom {
     pub fn new(event_sender: UnboundedSender<DomEvent>) -> Dom {
         let mut tree = TaffyTree::<NodeContext>::new();
 
-        let mut tw = Tailwind::default();
-        let style = tw.get_style("w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default", &StyleState::default());
-
         let root_id = tree
             .new_leaf_with_context(
-                style,
+                Style::default(),
                 NodeContext {
                     parent_id: None,
                     tag: "view".into(),
                     attrs: Default::default(),
-                    styling: tw,
+                    styling: Tailwind::default(),
                     scroll: Default::default(),
                     computed_rect: epaint::Rect::ZERO,
                 },
@@ -499,6 +496,10 @@ impl Dom {
     }
 
     pub fn remove_node(&mut self, id: NodeId) {
+        // remove children recursively
+        for child in self.tree.children(id).unwrap().iter() {
+            self.remove_node(*child);
+        }
         self.tree.remove(id).unwrap();
     }
 
@@ -582,12 +583,13 @@ impl Dom {
     }
 
     fn send_event_to_element(&self, node_id: NodeId, listener: &str, event: Arc<events::Event>) {
-        let element_id = self
+        let Some((element_id, ..)) = self
             .element_id_mapping
             .iter()
             .find(|(_, id)| **id == node_id)
-            .unwrap()
-            .0;
+        else {
+            return;
+        };
         let Some(listeners) = self.event_listeners.get(&element_id) else {
             return;
         };
@@ -744,6 +746,30 @@ impl Dom {
         button: &winit::event::MouseButton,
         state: &winit::event::ElementState,
     ) -> bool {
+        let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
+            state: self.state.clone(),
+            button: button.clone(),
+            pressed: true,
+        }));
+
+        let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
+            state: self.state.clone(),
+            button: button.clone(),
+            pressed: false,
+        }));
+
+        for node_id in self.state.hovered.iter().copied() {
+            match state {
+                winit::event::ElementState::Pressed => {
+                    self.send_event_to_element(node_id, "click", pressed_data.clone());
+                    self.send_event_to_element(node_id, "mousedown", pressed_data.clone());
+                }
+                winit::event::ElementState::Released => {
+                    self.send_event_to_element(node_id, "mouseup", not_pressed_data.clone());
+                }
+            }
+        }
+
         if button == &winit::event::MouseButton::Left
             && state == &winit::event::ElementState::Pressed
         {
@@ -763,7 +789,7 @@ impl Dom {
                 text_cursor: {
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
                     let parent_id = node.parent_id.unwrap();
-                    if node.tag != "text".into() {
+                    if node.tag == "text".into() {
                         let [node, parent] = self
                             .tree
                             .get_disjoint_node_context_mut([node_id, parent_id])
