@@ -331,7 +331,7 @@ impl Renderer {
     ) -> (Vec<ClippedPrimitive>, TexturesDelta, &ScreenDescriptor) {
         let now = Instant::now();
         self.calculate_layout(dom);
-        println!("layout took: {:?}", now.elapsed());
+        log::debug!("layout took: {:?}", now.elapsed());
 
         // get all computed rects
         let now = Instant::now();
@@ -491,9 +491,7 @@ impl Renderer {
                 (true, Some(clip))
             },
         );
-        println!("shape creation took: {:?}", now.elapsed());
 
-        let now = Instant::now();
         let texture_delta = {
             let font_image_delta = self.fonts.font_image_delta();
             if let Some(font_image_delta) = font_image_delta {
@@ -504,9 +502,6 @@ impl Renderer {
             self.tex_manager.take_delta()
         };
 
-        println!("delta creation took: {:?}", now.elapsed());
-
-        let now = Instant::now();
         let mut clipped_primitives: Vec<ClippedPrimitive> = Vec::with_capacity(self.shapes.len());
         for clipped_shape in std::mem::take(&mut self.shapes) {
             self.tessellator
@@ -521,7 +516,7 @@ impl Renderer {
                 }
         });
 
-        println!(
+        log::debug!(
             "paint info took: {:?} - primitives {}",
             now.elapsed(),
             clipped_primitives.len()
