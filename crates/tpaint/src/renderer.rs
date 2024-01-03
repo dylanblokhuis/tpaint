@@ -4,10 +4,10 @@ use epaint::{
     text::FontDefinitions,
     textures::{TextureOptions, TexturesDelta},
     vec2, ClippedPrimitive, ClippedShape, Color32, Fonts, Galley, Pos2, Rect, Shape, TextureId,
-    TextureManager, Vec2, WHITE_UV,
+    TextureManager, Vec2, WHITE_UV, Tessellator, TessellationOptions, Primitive,
 };
 
-use taffy::{Layout, NodeId, Overflow, Size, Style, AvailableSpace};
+use taffy::{Layout, NodeId, Overflow, Size, AvailableSpace};
 use winit::dpi::PhysicalSize;
 
 use crate::{
@@ -25,6 +25,7 @@ pub struct Renderer {
     pub fonts: Fonts,
     pub tex_manager: TextureManager,
     pub shapes: Vec<ClippedShape>,
+    pub tessellator: Tessellator
 }
 
 impl Renderer {
@@ -44,6 +45,14 @@ impl Renderer {
             );
         }
 
+        let (font_tex_size, prepared_discs) = {
+            let atlas = fonts.texture_atlas();
+            let atlas = atlas.lock();
+            (atlas.size(), atlas.prepared_discs())
+        };
+
+        let tessellator = Tessellator::new(fonts.pixels_per_point(), TessellationOptions::default(), font_tex_size, prepared_discs);
+
         Renderer {
             screen_descriptor: ScreenDescriptor {
                 pixels_per_point,
@@ -52,6 +61,7 @@ impl Renderer {
             fonts,
             tex_manager,
             shapes: Vec::new(),
+            tessellator
         }
     }
 
@@ -263,165 +273,6 @@ impl Renderer {
             shape,
         }
     }
-
-    // #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
-    // fn get_cursor_shape(
-    //     &self,
-    //     parent: &Node,
-    //     text_shape: &epaint::TextShape,
-    //     cursor_pos: usize,
-    // ) -> ClippedShape {
-    //     let rect = text_shape
-    //         .galley
-    //         .pos_from_cursor(&epaint::text::cursor::Cursor {
-    //             pcursor: epaint::text::cursor::PCursor {
-    //                 paragraph: 0,
-    //                 offset: cursor_pos,
-    //                 prefer_next_row: false,
-    //             },
-    //             ..Default::default()
-    //         });
-
-    //     let mut rect = rect;
-
-    //     rect.min.x += text_shape.pos.x;
-    //     rect.max.x += text_shape.pos.x;
-    //     rect.min.y += text_shape.pos.y;
-    //     rect.max.y += text_shape.pos.y;
-
-    //     rect.min.x -= 0.5;
-    //     rect.max.x += 0.5;
-
-    //     ClippedShape {
-    //         clip_rect: rect,
-    //         shape: epaint::Shape::Rect(epaint::RectShape {
-    //             rect,
-    //             rounding: epaint::Rounding::ZERO,
-    //             fill: parent.styling.text.color,
-    //             stroke: epaint::Stroke::default(),
-    //             fill_texture_id: TextureId::default(),
-    //             uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
-    //         }),
-    //     }
-    // }
-
-    // #[tracing::instrument(skip_all, name = "Renderer::get_cursor_shape")]
-    // fn get_text_selection_shape(
-    //     &self,
-    //     text_shape: &epaint::TextShape,
-    //     cursor_pos: usize,
-    //     selection_start: usize,
-    //     selection_color: Color32,
-    // ) -> Vec<ClippedShape> {
-    //     let cursor_rect = text_shape
-    //         .galley
-    //         .pos_from_pcursor(epaint::text::cursor::PCursor {
-    //             paragraph: 0,
-    //             offset: cursor_pos,
-    //             prefer_next_row: false,
-    //         });
-
-    //     let selection_rect = text_shape
-    //         .galley
-    //         .pos_from_pcursor(epaint::text::cursor::PCursor {
-    //             paragraph: 0,
-    //             offset: selection_start,
-    //             prefer_next_row: false,
-    //         });
-
-    //     let mut shapes = Vec::new();
-
-    //     // swap if cursor is before selection
-
-    //     let (start_cursor, end_cursor) = if cursor_pos < selection_start {
-    //         let start_cursor = text_shape
-    //             .galley
-    //             .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
-
-    //         let end_cursor = text_shape
-    //             .galley
-    //             .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
-
-    //         (start_cursor, end_cursor)
-    //     } else {
-    //         let start_cursor = text_shape
-    //             .galley
-    //             .cursor_from_pos(selection_rect.min.to_vec2() + selection_rect.size());
-    //         let end_cursor = text_shape
-    //             .galley
-    //             .cursor_from_pos(cursor_rect.min.to_vec2() + cursor_rect.size());
-
-    //         (start_cursor, end_cursor)
-    //     };
-
-    //     let min = start_cursor.rcursor;
-    //     let max = end_cursor.rcursor;
-
-    //     for ri in min.row..=max.row {
-    //         let row = &text_shape.galley.rows[ri];
-    //         let left = if ri == min.row {
-    //             row.x_offset(min.column)
-    //         } else {
-    //             row.rect.left()
-    //         };
-    //         let right = if ri == max.row {
-    //             row.x_offset(max.column)
-    //         } else {
-    //             let newline_size = if row.ends_with_newline {
-    //                 row.height() / 2.0 // visualize that we select the newline
-    //             } else {
-    //                 0.0
-    //             };
-    //             row.rect.right() + newline_size
-    //         };
-    //         let rect = Rect::from_min_max(
-    //             text_shape.pos + vec2(left, row.min_y()),
-    //             text_shape.pos + vec2(right, row.max_y()),
-    //         );
-    //         shapes.push(ClippedShape {
-    //             clip_rect: rect,
-    //             shape: epaint::Shape::Rect(epaint::RectShape {
-    //                 rect,
-    //                 rounding: epaint::Rounding::ZERO,
-    //                 fill: selection_color,
-    //                 stroke: epaint::Stroke::default(),
-    //                 fill_texture_id: TextureId::default(),
-    //                 uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
-    //             }),
-    //         });
-    //     }
-
-    //     // let mut rect = if cursor_pos > selection_start {
-    //     //     epaint::Rect::from_min_max(
-    //     //         epaint::Pos2 {
-    //     //             x: selection_rect.min.x,
-    //     //             y: selection_rect.min.y,
-    //     //         },
-    //     //         epaint::Pos2 {
-    //     //             x: cursor_rect.max.x,
-    //     //             y: cursor_rect.max.y,
-    //     //         },
-    //     //     )
-    //     // } else {
-    //     //     epaint::Rect::from_min_max(
-    //     //         epaint::Pos2 {
-    //     //             x: cursor_rect.min.x,
-    //     //             y: cursor_rect.min.y,
-    //     //         },
-    //     //         epaint::Pos2 {
-    //     //             x: selection_rect.max.x,
-    //     //             y: selection_rect.max.y,
-    //     //         },
-    //     //     )
-    //     // };
-
-    //     // rect.min.x += text_shape.pos.x;
-    //     // rect.max.x += text_shape.pos.x;
-    //     // rect.min.y += text_shape.pos.y;
-    //     // rect.max.y += text_shape.pos.y;
-
-    //     shapes
-    // }
 
     fn get_rect_shape(&self, node: &NodeContext, parent_clip: Rect) -> ClippedShape {
         let styling = &node.styling;
@@ -635,23 +486,22 @@ impl Renderer {
             self.tex_manager.take_delta()
         };
 
-        let (font_tex_size, prepared_discs) = {
-            let atlas = self.fonts.texture_atlas();
-            let atlas = atlas.lock();
-            (atlas.size(), atlas.prepared_discs())
-        };
-        println!("paint info took: {} {:?}", self.shapes.len(), now.elapsed());
+        let mut clipped_primitives: Vec<ClippedPrimitive> = Vec::with_capacity(self.shapes.len());
+        for clipped_shape in std::mem::take(&mut self.shapes) {
+            self.tessellator.tessellate_clipped_shape(clipped_shape, &mut clipped_primitives);
+        }
 
-        let primitives = epaint::tessellator::tessellate_shapes(
-            self.fonts.pixels_per_point(),
-            epaint::TessellationOptions::default(),
-            font_tex_size,
-            prepared_discs,
-            std::mem::take(&mut self.shapes),
-        );
+        clipped_primitives.retain(|p| {
+            p.clip_rect.is_positive()
+                && match &p.primitive {
+                    Primitive::Mesh(mesh) => !mesh.is_empty(),
+                    Primitive::Callback(_) => true,
+                }
+        });
 
+        println!("paint info took: {:?} - primitives {}", now.elapsed(), clipped_primitives.len());
 
-        (primitives, texture_delta, &self.screen_descriptor)
+        (clipped_primitives, texture_delta, &self.screen_descriptor)
     }
 
     pub fn get_scrollbar_rect(

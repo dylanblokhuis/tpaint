@@ -27,7 +27,7 @@ pub fn app(cx: Scope) -> Element {
                 }
             }
 
-            (0..10).map(|_| rsx! {
+            (0..1000).map(|_| rsx! {
                 view {
                     class: "w-full p-20 bg-blue-900",
 
