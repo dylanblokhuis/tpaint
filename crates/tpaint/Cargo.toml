@@ -24,7 +24,7 @@ rustc-hash = "1.1.0"
 simple_logger = "4.2.0"
 slotmap = "1.0.6"
 smallvec = "1.11.0"
-taffy = { git = "https://github.com/dylanblokhuis/taffy.git" }
+taffy = { git = "https://github.com/dioxuslabs/taffy.git" }
 tokio = { version = "1.32.0", features = ["time", "rt", "sync", "macros"] }
 tween = "2.0.1"
 usvg = { version = "0.37.0", optional = true }

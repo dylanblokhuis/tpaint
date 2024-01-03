@@ -7,7 +7,7 @@ use epaint::{
     TextureManager, Vec2, WHITE_UV,
 };
 
-use taffy::{Layout, NodeId, Overflow, Size, Style};
+use taffy::{Layout, NodeId, Overflow, Size, Style, AvailableSpace};
 use winit::dpi::PhysicalSize;
 
 use crate::{
@@ -60,10 +60,10 @@ impl Renderer {
         let root_id = dom.get_root_id();
         let available_space = Size {
             width: taffy::style::AvailableSpace::Definite(
-                self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point,
+                (self.screen_descriptor.size.width as f32 / self.screen_descriptor.pixels_per_point).ceil(),
             ),
             height: taffy::style::AvailableSpace::Definite(
-                self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point,
+                (self.screen_descriptor.size.height as f32 / self.screen_descriptor.pixels_per_point).ceil(),
             ),
         };
 
@@ -77,8 +77,9 @@ impl Renderer {
                 "w-full h-full overflow-y-scroll flex-nowrap items-start justify-start scrollbar-default".into()
             );
 
-            dom.traverse_tree(root_id, &mut |dom, id| {
+            dom.traverse_tree_with_parent(root_id, None, &mut |dom, id, parent| {
                 let node = dom.tree.get_node_context_mut(id).unwrap();
+
                 let style_state = StyleState {
                     hovered: dom.state.hovered.contains(&id),
                     focused: dom
@@ -118,9 +119,17 @@ impl Renderer {
                         .styling
                         .set_styling(class.unwrap_or(&"".into()), &style_state),
 
-                    "text" => node
-                        .styling
-                        .set_styling(class.unwrap_or(&"".into()), &style_state),
+                    "text" => {
+                        let [node, parent] = dom
+                            .tree
+                            .get_disjoint_node_context_mut([id, parent.unwrap()])
+                            .unwrap();
+
+                        let class = node.attrs.get("class");
+                        node.styling.text = parent.styling.text.clone();
+                        node.styling
+                            .set_styling(class.unwrap_or(&"".into()), &style_state)
+                    },
 
                     _ => unreachable!(),
                 };
@@ -133,64 +142,60 @@ impl Renderer {
                 true
             });
         }
+      
+        fn measure_function(
+            known_dimensions: taffy::geometry::Size<Option<f32>>,
+            available_space: taffy::geometry::Size<taffy::style::AvailableSpace>,
+            node_context: Option<&mut NodeContext>,
+            font_metrics: &Fonts,
+        ) -> Size<f32> {
+            if let Size { width: Some(width), height: Some(height) } = known_dimensions {
+                return Size { width, height };
+            }
 
-        {
-            let _guard = tracing::trace_span!("taffy compute layout").entered();
-            dom.tree.compute_layout(root_id, available_space).unwrap();
-        }
-
-        // text pass
-        {
-            let _guard =
-                tracing::trace_span!("Renderer::calculate_layout text layout pass").entered();
-
-            dom.traverse_tree_with_parent(root_id, None, &mut |dom, id, parent_id| {
-                let Some(parent_id) = parent_id else {
-                    return true;
-                };
-                let max_width = dom.tree.layout(id).unwrap().size.width;
-                let [node, parent] = dom
-                    .tree
-                    .get_disjoint_node_context_mut([id, parent_id])
-                    .unwrap();
-
-                let style = match &*node.tag {
-                    "text" => {
-                        let galley = self.fonts.layout(
-                            node.attrs.get("value").unwrap_or(&"".into()).to_string(),
-                            parent.styling.text.font.clone(),
-                            parent.styling.text.color,
-                            max_width,
-                        );
-                        let size = galley.size();
-                        Style {
-                            size: Size {
-                                width: taffy::Dimension::Length(max_width),
-                                height: taffy::Dimension::Length(size.y),
-                            },
-
-                            ..Default::default()
-                        }
+            match node_context {
+                None => Size::ZERO,
+                Some(node_context) => {
+                    if node_context.tag != "text".into() {
+                        return Size::ZERO;
                     }
-                    _ => {
-                        return true;
-                    }
-                };
+                  
+                    let galley = if let AvailableSpace::Definite(space) = available_space.width {
+                        font_metrics.layout(
+                            node_context.attrs.get("value").unwrap_or(&"".into()).to_string(),
+                            node_context.styling.text.font.clone(),
+                            node_context.styling.text.color,
+                            space
+                        )
+                    } else {
+                        font_metrics.layout_no_wrap(
+                            node_context.attrs.get("value").unwrap_or(&"".into()).to_string(),
+                            node_context.styling.text.font.clone(),
+                            node_context.styling.text.color,
+                        )
+                    };
+                
+                    let size = galley.size();
 
-                let old_style = dom.tree.style(id).unwrap();
-                if old_style != &style {
-                    dom.tree.set_style(id, style).unwrap();
+                    Size {
+                        width: size.x,
+                        height: size.y,
+                    }
                 }
-                true
-            });
+            }
         }
 
         {
             let _guard = tracing::trace_span!("taffy compute layout").entered();
-            dom.tree.compute_layout(root_id, available_space).unwrap();
+            dom.tree.compute_layout_with_measure(root_id, available_space, 
+                 // Note: this closure is a FnMut closure and can be used to borrow external context for the duration of layout
+                // For example, you may wish to borrow a global font registry and pass it into your text measuring function
+                |known_dimensions, available_space, _node_id, node_context| {
+                    measure_function(known_dimensions, available_space, node_context, &self.fonts)
+                },
+            ).unwrap();
+            self.compute_rects(dom);
         }
-
-        self.compute_rects(dom);
     }
 
     /// will compute the rects for all the nodes using the final computed layout
@@ -635,6 +640,7 @@ impl Renderer {
             let atlas = atlas.lock();
             (atlas.size(), atlas.prepared_discs())
         };
+        println!("paint info took: {} {:?}", self.shapes.len(), now.elapsed());
 
         let primitives = epaint::tessellator::tessellate_shapes(
             self.fonts.pixels_per_point(),
@@ -644,7 +650,6 @@ impl Renderer {
             std::mem::take(&mut self.shapes),
         );
 
-        println!("paint info took: {:?}", now.elapsed());
 
         (primitives, texture_delta, &self.screen_descriptor)
     }
