@@ -612,7 +612,10 @@ impl Dom {
         let listener = self.get_tag_or_attr_key(listener);
         let mut current_node_id = node_id;
         loop {
-            let node = self.tree.get_node_context(current_node_id).unwrap();
+            let Some(node) = self.tree.get_node_context(current_node_id) else {
+                // can happen if the tree isn't fully built yet
+                break;
+            };
             let Some(name) = node.listeners.get(&listener) else {
                 // bubble up if there are no listeners at all
                 if let Some(parent_id) = node.parent_id {
@@ -665,7 +668,10 @@ impl Dom {
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let node = dom.tree.get_node_context_mut(id).unwrap();
             let rect = node.computed.rect;
-            let is_hovered = rect.contains(epaint::Pos2::new(position.x as f32, position.y as f32));
+            let is_hovered = rect.contains(epaint::Pos2::new(
+                dom.state.cursor_state.current_position.x as f32,
+                dom.state.cursor_state.current_position.y as f32,
+            ));
             if is_hovered {
                 dom.state.hovered.push(id);
             }
@@ -794,49 +800,29 @@ impl Dom {
                 Some(self.state.cursor_state.current_position);
         }
 
-        self.state.focused = if let Some(node_id) = self.state.hovered.last().copied() {
-            // let node = self.tree.get_node_context_mut(node_id).unwrap();
+        // find first element with tabindex
+        self.state.focused = self.state.hovered.clone().iter().rev().find_map(|id| {
+            let node = self.tree.get_node_context(*id).unwrap();
 
-            // let mut text_node_id = None;
-            // if node.tag == "text".into() {
-            //     text_node_id = Some(node_id);
-            //     node_id = node.parent_id.unwrap();
-            // };
+            if node.attrs.get("tabindex").is_some() || node.listeners.contains("click") {
+                let node = FocusedNode {
+                    node_id: *id,
+                    text_cursor: None,
+                };
 
-            let node = FocusedNode {
-                node_id,
-                text_cursor: None,
-                // text_cursor: if let Some(text_node_id) = text_node_id {
-                //     let node = self.tree.get_node_context_mut(text_node_id).unwrap();
-                //     let relative_pos =
-                //         self.state.cursor_state.current_position - node.computed.rect.min;
+                self.send_event_to_element(
+                    *id,
+                    "focus",
+                    Arc::new(events::Event::Focus(events::FocusEvent {
+                        state: self.state.clone(),
+                    })),
+                );
 
-                //     Some(
-                //         node.computed
-                //             .galley
-                //             .as_ref()
-                //             .unwrap()
-                //             .cursor_from_pos(relative_pos)
-                //             .ccursor
-                //             .index,
-                //     )
-                // } else {
-                //     None
-                // },
-            };
-
-            self.send_event_to_element(
-                node_id,
-                "focus",
-                Arc::new(events::Event::Focus(events::FocusEvent {
-                    state: self.state.clone(),
-                })),
-            );
-
-            Some(node)
-        } else {
-            None
-        };
+                Some(node)
+            } else {
+                None
+            }
+        });
 
         if let Some(focused) = self.state.focused {
             let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {

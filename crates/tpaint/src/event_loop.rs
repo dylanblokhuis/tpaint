@@ -80,7 +80,6 @@ impl DomEventLoop {
         
                             let mutations = vdom.render_immediate();
                             dom.lock().unwrap().apply_mutations(mutations);
-                            // dom.lock().unwrap().print_tree();
         
                             event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
                         }
@@ -102,6 +101,7 @@ impl DomEventLoop {
 
     pub fn on_window_event(&mut self, event: &winit::event::WindowEvent) -> bool {
         let mut repaint = false;
+
         match event {
             WindowEvent::Resized(size) => {
                 self.renderer.screen_descriptor = ScreenDescriptor {

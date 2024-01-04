@@ -71,6 +71,7 @@ pub mod prelude {
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
 
+            pub const tabindex: AttributeDescription = ("tabindex", None, false);
             pub const text_cursor: AttributeDescription = ("text_cursor", None, false);
             pub const text_cursor_visible: AttributeDescription =
                 ("text_cursor_visible", None, false);
@@ -89,6 +90,7 @@ pub mod prelude {
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
             pub const src: AttributeDescription = ("src", None, false);
+            pub const tabindex: AttributeDescription = ("tabindex", None, false);
         }
 
         pub mod events {
