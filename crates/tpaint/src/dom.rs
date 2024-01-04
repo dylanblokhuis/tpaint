@@ -8,7 +8,10 @@ use epaint::{Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
 use tokio::sync::mpsc::UnboundedSender;
-use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+use winit::{
+    dpi::PhysicalPosition,
+    event::{KeyboardInput, MouseScrollDelta},
+};
 
 use crate::{
     events::{self, DomEvent},
@@ -37,6 +40,7 @@ pub struct NodeContext {
     pub tag: Arc<str>,
     pub parent_id: Option<NodeId>,
     pub attrs: FxHashMap<Arc<str>, Arc<str>>,
+    pub listeners: FxHashSet<Arc<str>>,
     pub styling: Tailwind,
     pub scroll: Vec2,
     pub computed: Computed,
@@ -83,7 +87,6 @@ pub struct Dom {
     stack: Vec<NodeId>,
     pub element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
-    pub event_listeners: FxHashMap<ElementId, Vec<Arc<str>>>,
     pub state: DomState,
     event_sender: UnboundedSender<DomEvent>,
 }
@@ -102,6 +105,7 @@ impl Dom {
                     styling: Tailwind::default(),
                     scroll: Default::default(),
                     computed: Default::default(),
+                    listeners: Default::default(),
                 },
             )
             .unwrap();
@@ -121,7 +125,6 @@ impl Dom {
             stack: Default::default(),
             element_id_mapping,
             common_tags_and_attr_keys,
-            event_listeners: Default::default(),
             state: DomState {
                 focused: None,
                 hovered: vec![],
@@ -231,6 +234,7 @@ impl Dom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     computed: Default::default(),
+                    listeners: Default::default(),
                 };
                 let style = self.get_initial_styling(&mut node);
                 let node_id = self.tree.new_leaf_with_context(style, node).unwrap();
@@ -254,6 +258,7 @@ impl Dom {
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
                     computed: Default::default(),
+                    listeners: Default::default(),
                 };
                 let style = self.get_initial_styling(&mut node);
                 let node_id = self.tree.new_leaf_with_context(style, node).unwrap();
@@ -273,6 +278,7 @@ impl Dom {
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
                             computed: Default::default(),
+                            listeners: Default::default(),
                         },
                     )
                     .unwrap();
@@ -295,6 +301,7 @@ impl Dom {
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
                             computed: Default::default(),
+                            listeners: Default::default(),
                         },
                     )
                     .unwrap();
@@ -313,7 +320,6 @@ impl Dom {
                     self.create_template_node(root, Some(self.element_id_mapping[&ElementId(0)]));
                 children.push(id);
             }
-            println!("inserting template {:?}", template.name);
             self.templates.insert(template.name.to_string(), children);
         }
 
@@ -336,7 +342,7 @@ impl Dom {
                         parent_id: None,
                         attrs: FxHashMap::default(),
                         computed: Default::default(),
-
+                        listeners: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
                         tag: "placeholder".into(),
@@ -360,18 +366,15 @@ impl Dom {
                 }
                 dioxus::core::Mutation::NewEventListener { name, id } => {
                     let name = self.get_tag_or_attr_key(name);
-                    // let node_id = self.element_id_mapping[&id];
-                    if let Some(listeners) = self.event_listeners.get_mut(&id) {
-                        listeners.push(name);
-                    } else {
-                        self.event_listeners.insert(id, vec![name]);
-                    }
+                    let node_id = self.element_id_mapping[&id];
+                    let node = self.tree.get_node_context_mut(node_id).unwrap();
+                    node.listeners.insert(name);
                 }
                 dioxus::core::Mutation::RemoveEventListener { name, id } => {
                     let name = self.get_tag_or_attr_key(name);
-                    if let Some(listeners) = self.event_listeners.get_mut(&id) {
-                        listeners.retain(|val| val != &name);
-                    }
+                    let node_id = self.element_id_mapping[&id];
+                    let node = self.tree.get_node_context_mut(node_id).unwrap();
+                    node.listeners.remove(&name);
                 }
                 dioxus::core::Mutation::SetAttribute {
                     name, value, id, ..
@@ -405,6 +408,7 @@ impl Dom {
                         parent_id: None,
                         attrs,
                         computed: Default::default(),
+                        listeners: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
                         tag: "text".into(),
@@ -494,6 +498,7 @@ impl Dom {
             styling,
             scroll: Vec2::ZERO,
             computed: Default::default(),
+            listeners: Default::default(),
         };
         let style = self.get_initial_styling(&mut node);
 
@@ -598,30 +603,44 @@ impl Dom {
         }
     }
 
-    fn send_event_to_element(&self, node_id: NodeId, listener: &str, event: Arc<events::Event>) {
-        let Some((element_id, ..)) = self
-            .element_id_mapping
-            .iter()
-            .find(|(_, id)| **id == node_id)
-        else {
-            return;
-        };
-        let Some(listeners) = self.event_listeners.get(&element_id) else {
-            return;
-        };
+    fn send_event_to_element(
+        &mut self,
+        node_id: NodeId,
+        listener: &str,
+        event: Arc<events::Event>,
+    ) {
+        let listener = self.get_tag_or_attr_key(listener);
+        let mut current_node_id = node_id;
+        loop {
+            let node = self.tree.get_node_context(current_node_id).unwrap();
+            let Some(name) = node.listeners.get(&listener) else {
+                // bubble up if there are no listeners at all
+                if let Some(parent_id) = node.parent_id {
+                    current_node_id = parent_id;
+                    continue;
+                } else {
+                    break;
+                }
+            };
 
-        let Some(name) = listeners.iter().find(|name| (name as &str) == listener) else {
-            return;
-        };
+            let Some((element_id, ..)) = self
+                .element_id_mapping
+                .iter()
+                .find(|(_, id)| **id == current_node_id)
+            else {
+                return;
+            };
 
-        self.event_sender
-            .send(DomEvent {
-                name: name.clone(),
-                data: event.clone(),
-                element_id: *element_id,
-                bubbles: true,
-            })
-            .unwrap();
+            self.event_sender
+                .send(DomEvent {
+                    name: name.clone(),
+                    data: event.clone(),
+                    element_id: *element_id,
+                    bubbles: false,
+                })
+                .unwrap();
+            break;
+        }
     }
 
     fn translate_mouse_pos(
@@ -762,30 +781,6 @@ impl Dom {
         button: &winit::event::MouseButton,
         state: &winit::event::ElementState,
     ) -> bool {
-        let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-            state: self.state.clone(),
-            button: button.clone(),
-            pressed: true,
-        }));
-
-        let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-            state: self.state.clone(),
-            button: button.clone(),
-            pressed: false,
-        }));
-
-        for node_id in self.state.hovered.iter().copied() {
-            match state {
-                winit::event::ElementState::Pressed => {
-                    self.send_event_to_element(node_id, "click", pressed_data.clone());
-                    self.send_event_to_element(node_id, "mousedown", pressed_data.clone());
-                }
-                winit::event::ElementState::Released => {
-                    self.send_event_to_element(node_id, "mouseup", not_pressed_data.clone());
-                }
-            }
-        }
-
         if button == &winit::event::MouseButton::Left
             && state == &winit::event::ElementState::Pressed
         {
@@ -800,28 +795,34 @@ impl Dom {
         }
 
         self.state.focused = if let Some(node_id) = self.state.hovered.last().copied() {
+            // let node = self.tree.get_node_context_mut(node_id).unwrap();
+
+            // let mut text_node_id = None;
+            // if node.tag == "text".into() {
+            //     text_node_id = Some(node_id);
+            //     node_id = node.parent_id.unwrap();
+            // };
+
             let node = FocusedNode {
                 node_id,
-                text_cursor: {
-                    let node = self.tree.get_node_context_mut(node_id).unwrap();
-                    if node.tag != "text".into() {
-                        let node = self.tree.get_node_context_mut(node_id).unwrap();
-                        let relative_pos =
-                            self.state.cursor_state.current_position - node.computed.rect.min;
+                text_cursor: None,
+                // text_cursor: if let Some(text_node_id) = text_node_id {
+                //     let node = self.tree.get_node_context_mut(text_node_id).unwrap();
+                //     let relative_pos =
+                //         self.state.cursor_state.current_position - node.computed.rect.min;
 
-                        Some(
-                            node.computed
-                                .galley
-                                .as_ref()
-                                .unwrap()
-                                .cursor_from_pos(relative_pos)
-                                .ccursor
-                                .index,
-                        )
-                    } else {
-                        None
-                    }
-                },
+                //     Some(
+                //         node.computed
+                //             .galley
+                //             .as_ref()
+                //             .unwrap()
+                //             .cursor_from_pos(relative_pos)
+                //             .ccursor
+                //             .index,
+                //     )
+                // } else {
+                //     None
+                // },
             };
 
             self.send_event_to_element(
@@ -836,6 +837,34 @@ impl Dom {
         } else {
             None
         };
+
+        if let Some(focused) = self.state.focused {
+            let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
+                state: self.state.clone(),
+                button: button.clone(),
+                pressed: true,
+            }));
+
+            let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
+                state: self.state.clone(),
+                button: button.clone(),
+                pressed: false,
+            }));
+
+            match state {
+                winit::event::ElementState::Pressed => {
+                    self.send_event_to_element(focused.node_id, "click", pressed_data.clone());
+                    self.send_event_to_element(focused.node_id, "mousedown", pressed_data.clone());
+                }
+                winit::event::ElementState::Released => {
+                    self.send_event_to_element(
+                        focused.node_id,
+                        "mouseup",
+                        not_pressed_data.clone(),
+                    );
+                }
+            }
+        }
 
         true
     }
@@ -879,6 +908,60 @@ impl Dom {
         scroll += node.scroll;
         node.scroll.x = scroll.x.max(0.0).min(total_scroll_width);
         node.scroll.y = scroll.y.max(0.0).min(total_scroll_height);
+
+        true
+    }
+
+    pub fn on_char(&mut self, c: &char) -> bool {
+        let Some(focused) = self.state.focused else {
+            return false;
+        };
+
+        self.send_event_to_element(
+            focused.node_id,
+            "input",
+            Arc::new(events::Event::Input(events::InputEvent {
+                state: self.state.clone(),
+                text: *c,
+            })),
+        );
+
+        true
+    }
+
+    pub fn on_keyboard_input(&mut self, input: &KeyboardInput) -> bool {
+        let Some(key) = input.virtual_keycode else {
+            return false;
+        };
+
+        let Some(focused) = self.state.focused else {
+            return false;
+        };
+
+        match input.state {
+            winit::event::ElementState::Pressed => {
+                self.send_event_to_element(
+                    focused.node_id,
+                    "keydown",
+                    Arc::new(events::Event::Key(events::KeyInput {
+                        state: self.state.clone(),
+                        key,
+                        pressed: true,
+                    })),
+                );
+            }
+            winit::event::ElementState::Released => {
+                self.send_event_to_element(
+                    focused.node_id,
+                    "keyup",
+                    Arc::new(events::Event::Key(events::KeyInput {
+                        state: self.state.clone(),
+                        key,
+                        pressed: false,
+                    })),
+                );
+            }
+        }
 
         true
     }

@@ -2,10 +2,9 @@ use std::{any::Any, rc::Rc, sync::Arc};
 
 use dioxus::core::ElementId;
 
-
 use winit::event::{ModifiersState, MouseButton};
 
-use crate::dom::{DomState};
+use crate::dom::DomState;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -28,7 +27,6 @@ impl Event {
             Event::Key(key_input) => Rc::new(key_input),
             Event::Click(click) => Rc::new(click),
             Event::MouseMove(mouse_move) => Rc::new(mouse_move),
-            _ => unimplemented!(),
         }
     }
 }

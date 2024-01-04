@@ -146,9 +146,11 @@ impl Renderer {
                             .unwrap();
 
                         let class = node.attrs.get("class");
+                        let style = node
+                            .styling
+                            .set_styling(class.unwrap_or(&"".into()), &style_state);
                         node.styling.text = parent.styling.text.clone();
-                        node.styling
-                            .set_styling(class.unwrap_or(&"".into()), &style_state)
+                        style
                     }
 
                     _ => unreachable!(),
@@ -773,18 +775,18 @@ impl Renderer {
             selected_node.computed_rect_when_selected.size().x + 1.0,
         );
 
-        println!(
-            "node.computed.rect: {:?}",
-            selected_node.computed_rect_when_selected
-        );
-        println!(
-            " cursor_state.drag_start_position: {:?}",
-            cursor_state.drag_start_position
-        );
-        println!(
-            " cursor_state.drag_end_position: {:?}",
-            cursor_state.drag_end_position
-        );
+        // println!(
+        //     "node.computed.rect: {:?}",
+        //     selected_node.computed_rect_when_selected
+        // );
+        // println!(
+        //     " cursor_state.drag_start_position: {:?}",
+        //     cursor_state.drag_start_position
+        // );
+        // println!(
+        //     " cursor_state.drag_end_position: {:?}",
+        //     cursor_state.drag_end_position
+        // );
 
         let selection_start = cursor_state.drag_start_position.unwrap().to_vec2()
             - selected_node.computed_rect_when_selected.min.to_vec2();

@@ -43,9 +43,10 @@ impl DomEventLoop {
             move || {
                 let mut vdom = VirtualDom::new(app).with_root_context(root_context);
                 let mutations = vdom.rebuild();
-                dbg!(&mutations);
+                // dbg!(&mutations);
                 dom.lock().unwrap().apply_mutations(mutations);
                 event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
+
     
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -79,6 +80,7 @@ impl DomEventLoop {
         
                             let mutations = vdom.render_immediate();
                             dom.lock().unwrap().apply_mutations(mutations);
+                            // dom.lock().unwrap().print_tree();
         
                             event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
                         }
@@ -127,9 +129,24 @@ impl DomEventLoop {
                 let mut dom = self.dom.lock().unwrap();
                 repaint = dom.on_scroll(delta)
             }
+            WindowEvent::ReceivedCharacter(c) => {
+                let mut dom = self.dom.lock().unwrap();
+                repaint = dom.on_char(c);
+            }
+            WindowEvent::KeyboardInput { input, .. } => {
+                let mut dom = self.dom.lock().unwrap();
+                repaint = dom.on_keyboard_input(input);
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 let mut dom = self.dom.lock().unwrap();
                 dom.state.keyboard_state.modifiers = *modifiers;
+            }
+            WindowEvent::Focused(focused) => {
+                let mut dom = self.dom.lock().unwrap();
+                dom.state.keyboard_state.modifiers = Default::default();
+                if !focused {
+                    dom.state.focused = None;
+                }
             }
             _ => {}
         }
