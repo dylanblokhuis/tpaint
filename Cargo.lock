@@ -52,6 +52,7 @@ checksum = "77c3a9648d43b9cd48db467b3f87fdd6e146bcc88ab0180006cef2179fe11d01"
 dependencies = [
  "cfg-if",
  "once_cell",
+ "serde",
  "version_check",
  "zerocopy",
 ]
@@ -1044,6 +1045,7 @@ version = "0.24.2"
 source = "git+https://github.com/emilk/egui#e2c1d9f90d360b8ba91d9c0388df3f9828490d86"
 dependencies = [
  "bytemuck",
+ "serde",
 ]
 
 [[package]]
@@ -1058,6 +1060,7 @@ version = "0.24.2"
 source = "git+https://github.com/emilk/egui#e2c1d9f90d360b8ba91d9c0388df3f9828490d86"
 dependencies = [
  "bytemuck",
+ "serde",
 ]
 
 [[package]]
@@ -1094,6 +1097,7 @@ dependencies = [
  "log",
  "nohash-hasher",
  "parking_lot",
+ "serde",
 ]
 
 [[package]]

@@ -108,6 +108,8 @@ impl DomEventLoop {
                    size: *size,
                    pixels_per_point: self.renderer.screen_descriptor.pixels_per_point
                 };
+                let mut dom = self.dom.lock().unwrap();
+                dom.on_resize();
                 repaint = true;
             }
             WindowEvent::ScaleFactorChanged { new_inner_size, scale_factor } => {
@@ -115,6 +117,8 @@ impl DomEventLoop {
                     size: **new_inner_size,
                     pixels_per_point: *scale_factor as f32,
                 };
+                let mut dom = self.dom.lock().unwrap();
+                dom.on_resize();
                 repaint = true;
             }
             WindowEvent::MouseInput { button, state, .. } => {

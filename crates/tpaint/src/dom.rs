@@ -608,22 +608,51 @@ impl Dom {
         node_id: NodeId,
         listener: &str,
         event: Arc<events::Event>,
+        bubbles: bool,
     ) {
         let listener = self.get_tag_or_attr_key(listener);
         let mut current_node_id = node_id;
-        loop {
+        if bubbles {
+            loop {
+                let Some(node) = self.tree.get_node_context(current_node_id) else {
+                    // can happen if the tree isn't fully built yet
+                    break;
+                };
+                let Some(name) = node.listeners.get(&listener) else {
+                    // bubble up if there are no listeners at all
+                    if let Some(parent_id) = node.parent_id {
+                        current_node_id = parent_id;
+                        continue;
+                    } else {
+                        break;
+                    }
+                };
+
+                let Some((element_id, ..)) = self
+                    .element_id_mapping
+                    .iter()
+                    .find(|(_, id)| **id == current_node_id)
+                else {
+                    return;
+                };
+
+                self.event_sender
+                    .send(DomEvent {
+                        name: name.clone(),
+                        data: event.clone(),
+                        element_id: *element_id,
+                        bubbles: false,
+                    })
+                    .unwrap();
+                break;
+            }
+        } else {
             let Some(node) = self.tree.get_node_context(current_node_id) else {
                 // can happen if the tree isn't fully built yet
-                break;
+                return;
             };
             let Some(name) = node.listeners.get(&listener) else {
-                // bubble up if there are no listeners at all
-                if let Some(parent_id) = node.parent_id {
-                    current_node_id = parent_id;
-                    continue;
-                } else {
-                    break;
-                }
+                return;
             };
 
             let Some((element_id, ..)) = self
@@ -642,7 +671,6 @@ impl Dom {
                     bubbles: false,
                 })
                 .unwrap();
-            break;
         }
     }
 
@@ -816,6 +844,7 @@ impl Dom {
                     Arc::new(events::Event::Focus(events::FocusEvent {
                         state: self.state.clone(),
                     })),
+                    true,
                 );
 
                 Some(node)
@@ -839,14 +868,25 @@ impl Dom {
 
             match state {
                 winit::event::ElementState::Pressed => {
-                    self.send_event_to_element(focused.node_id, "click", pressed_data.clone());
-                    self.send_event_to_element(focused.node_id, "mousedown", pressed_data.clone());
+                    self.send_event_to_element(
+                        focused.node_id,
+                        "click",
+                        pressed_data.clone(),
+                        true,
+                    );
+                    self.send_event_to_element(
+                        focused.node_id,
+                        "mousedown",
+                        pressed_data.clone(),
+                        true,
+                    );
                 }
                 winit::event::ElementState::Released => {
                     self.send_event_to_element(
                         focused.node_id,
                         "mouseup",
                         not_pressed_data.clone(),
+                        true,
                     );
                 }
             }
@@ -910,6 +950,7 @@ impl Dom {
                 state: self.state.clone(),
                 text: *c,
             })),
+            true,
         );
 
         true
@@ -934,6 +975,7 @@ impl Dom {
                         key,
                         pressed: true,
                     })),
+                    true,
                 );
             }
             winit::event::ElementState::Released => {
@@ -945,6 +987,7 @@ impl Dom {
                         key,
                         pressed: false,
                     })),
+                    true,
                 );
             }
         }
@@ -963,7 +1006,25 @@ impl Dom {
                     state: self.state.clone(),
                     rect,
                 })),
+                false,
             );
         }
+    }
+
+    pub fn on_resize(&mut self) {
+        // send all nodes a layout event
+        self.traverse_tree(self.get_root_id(), &mut |dom, id| {
+            let rect = dom.tree.get_node_context(id).unwrap().computed.rect;
+            dom.send_event_to_element(
+                id,
+                "layout",
+                Arc::new(events::Event::Layout(LayoutEvent {
+                    state: dom.state.clone(),
+                    rect,
+                })),
+                false,
+            );
+            true
+        });
     }
 }
