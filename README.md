@@ -8,8 +8,6 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Border Radius
 - Text
 - Text color
-- Flexbox
-- Grid
 - Hot reloading, use the ``hot-reload`` feature
 - Scrolling
 - Images through img tag, with 'src' attribute. Disk only and supports svg, png and jpg. More can easily be added through the ``image`` crate
@@ -17,8 +15,6 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
   
 ### What needs implementing:
 
-- Lazy layout
-- Lazy rendering (only whats visible)
 - Loading images from network instead of only from disk
 - Number field with drag value
 - Checkbox field
@@ -26,6 +22,7 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Select field
 - Textarea field
 - Links
+- Clicking the scrollbars
 - many more..
 
 
