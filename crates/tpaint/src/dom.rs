@@ -14,7 +14,7 @@ use winit::{
 };
 
 use crate::{
-    events::{self, DomEvent},
+    events::{self, DomEvent, LayoutEvent},
     renderer::{Renderer, ScreenDescriptor},
 };
 
@@ -950,5 +950,20 @@ impl Dom {
         }
 
         true
+    }
+
+    /// sends an event to the element that the layout has changed
+    pub fn on_layout_changed(&mut self, nodes: &[NodeId]) {
+        for node_id in nodes {
+            let rect = self.tree.get_node_context(*node_id).unwrap().computed.rect;
+            self.send_event_to_element(
+                *node_id,
+                "layout",
+                Arc::new(events::Event::Layout(LayoutEvent {
+                    state: self.state.clone(),
+                    rect,
+                })),
+            );
+        }
     }
 }

@@ -131,6 +131,11 @@ pub mod prelude {
                 crate::events::DragEvent;
                 ondrag
             ];
+
+            impl_event![
+                crate::events::LayoutEvent;
+                onlayout
+            ];
         }
     }
 }

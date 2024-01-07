@@ -15,6 +15,7 @@ pub enum Event {
     Key(KeyInput),
     Click(ClickEvent),
     MouseMove(MouseMoveEvent),
+    Layout(LayoutEvent),
 }
 
 impl Event {
@@ -27,6 +28,7 @@ impl Event {
             Event::Key(key_input) => Rc::new(key_input),
             Event::Click(click) => Rc::new(click),
             Event::MouseMove(mouse_move) => Rc::new(mouse_move),
+            Event::Layout(layout) => Rc::new(layout),
         }
     }
 }
@@ -97,4 +99,10 @@ pub struct ClickEvent {
 #[derive(Clone, Debug)]
 pub struct MouseMoveEvent {
     pub state: DomState,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayoutEvent {
+    pub state: DomState,
+    pub rect: epaint::Rect,
 }

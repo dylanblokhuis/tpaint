@@ -220,6 +220,16 @@ impl Renderer {
             }
         }
 
+        // send event on dirty nodes
+        let mut dirty_nodes = vec![];
+        dom.traverse_tree(root_id, &mut |dom, id| {
+            let is_dirty = dom.tree.dirty(id).unwrap_or(false);
+            if is_dirty {
+                dirty_nodes.push(id);
+            }
+            true
+        });
+
         {
             let _guard = tracing::trace_span!("taffy compute layout").entered();
             dom.tree
@@ -240,6 +250,8 @@ impl Renderer {
                 .unwrap();
             self.compute_rects(dom);
         }
+
+        dom.on_layout_changed(&dirty_nodes);
     }
 
     /// will compute the rects for all the nodes using the final computed layout

@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
-use tpaint::prelude::*;
+use tpaint::prelude::{
+    dioxus_elements::events::{onclick, onlayout},
+    *,
+};
 
 pub fn app(cx: Scope) -> Element {
     render! {
@@ -29,8 +32,7 @@ pub fn app(cx: Scope) -> Element {
 
             (0..10).map(|_| rsx! {
                 view {
-                    class: "w-full p-20 bg-blue-900",
-
+                    class: "w-full p-20 bg-blue-900 hover:p-30",
                     "Lorem ipsum dolor sit amet"
                 }
             })
