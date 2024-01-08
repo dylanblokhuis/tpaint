@@ -3,7 +3,7 @@ use std::{any::Any, rc::Rc, sync::Arc};
 use dioxus::core::ElementId;
 
 use winit::{
-    event::{Modifiers, MouseButton},
+    event::{ElementState, Modifiers, MouseButton},
     keyboard::{ModifiersKeyState, ModifiersState, SmolStr},
 };
 
@@ -90,14 +90,14 @@ pub struct InputEvent {
 pub struct KeyInput {
     pub state: DomState,
     pub text: SmolStr,
-    pub pressed: bool,
+    pub element_state: ElementState,
 }
 
 #[derive(Clone, Debug)]
 pub struct ClickEvent {
     pub state: DomState,
     pub button: MouseButton,
-    pub pressed: bool,
+    pub element_state: ElementState,
 }
 
 #[derive(Clone, Debug)]

@@ -10,7 +10,7 @@ use taffy::{prelude::*, Overflow};
 use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
-    event::{KeyEvent, Modifiers, MouseScrollDelta},
+    event::{ElementState, KeyEvent, Modifiers, MouseScrollDelta},
     platform::modifier_supplement::KeyEventExtModifierSupplement,
 };
 
@@ -858,13 +858,13 @@ impl Dom {
             let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
                 state: self.state.clone(),
                 button: button.clone(),
-                pressed: true,
+                element_state: ElementState::Pressed,
             }));
 
             let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
                 state: self.state.clone(),
                 button: button.clone(),
-                pressed: false,
+                element_state: ElementState::Released,
             }));
 
             match state {
@@ -974,7 +974,7 @@ impl Dom {
                     Arc::new(events::Event::Key(events::KeyInput {
                         state: self.state.clone(),
                         text,
-                        pressed: true,
+                        element_state: ElementState::Pressed,
                     })),
                     true,
                 );
@@ -986,7 +986,7 @@ impl Dom {
                     Arc::new(events::Event::Key(events::KeyInput {
                         state: self.state.clone(),
                         text,
-                        pressed: false,
+                        element_state: ElementState::Released,
                     })),
                     true,
                 );
