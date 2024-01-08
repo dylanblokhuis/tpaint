@@ -112,9 +112,9 @@ impl DomEventLoop {
                 dom.on_resize();
                 repaint = true;
             }
-            WindowEvent::ScaleFactorChanged { new_inner_size, scale_factor } => {
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.renderer.screen_descriptor = ScreenDescriptor {
-                    size: **new_inner_size,
+                    size: self.renderer.screen_descriptor.size,
                     pixels_per_point: *scale_factor as f32,
                 };
                 let mut dom = self.dom.lock().unwrap();
@@ -133,13 +133,14 @@ impl DomEventLoop {
                 let mut dom = self.dom.lock().unwrap();
                 repaint = dom.on_scroll(delta)
             }
-            WindowEvent::ReceivedCharacter(c) => {
+            // WindowEvent::
+            // WindowEvent::R(c) => {
+            //     let mut dom = self.dom.lock().unwrap();
+            //     repaint = dom.on_char(c);
+            // }
+            WindowEvent::KeyboardInput { event, .. } => {
                 let mut dom = self.dom.lock().unwrap();
-                repaint = dom.on_char(c);
-            }
-            WindowEvent::KeyboardInput { input, .. } => {
-                let mut dom = self.dom.lock().unwrap();
-                repaint = dom.on_keyboard_input(input);
+                repaint = dom.on_keyboard_input(event);
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 let mut dom = self.dom.lock().unwrap();

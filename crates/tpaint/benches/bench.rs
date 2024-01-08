@@ -30,7 +30,7 @@ pub fn run_paint_info(app: &mut DomEventLoop) {
 }
 
 pub fn criterion_benchmark(c: &mut Criterion) {
-    let event_loop = EventLoopBuilder::with_user_event().build();
+    let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
         .build(&event_loop)

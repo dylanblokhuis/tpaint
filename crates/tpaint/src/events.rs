@@ -2,7 +2,10 @@ use std::{any::Any, rc::Rc, sync::Arc};
 
 use dioxus::core::ElementId;
 
-use winit::event::{ModifiersState, MouseButton};
+use winit::{
+    event::{Modifiers, MouseButton},
+    keyboard::{ModifiersKeyState, ModifiersState, SmolStr},
+};
 
 use crate::dom::DomState;
 
@@ -34,7 +37,7 @@ impl Event {
 }
 
 impl DomState {
-    pub fn modifiers(&self) -> ModifiersState {
+    pub fn modifiers(&self) -> Modifiers {
         self.keyboard_state.modifiers
     }
 
@@ -45,11 +48,12 @@ impl DomState {
     pub fn command(&self) -> bool {
         // on macos check logo key
         if cfg!(target_os = "macos") {
-            return self.modifiers().logo();
+            return self.modifiers().state().super_key();
         }
 
         // on windows and linux check control
-        self.modifiers().ctrl()
+
+        self.modifiers().state().control_key()
     }
 }
 
@@ -85,7 +89,7 @@ pub struct InputEvent {
 #[derive(Clone, Debug)]
 pub struct KeyInput {
     pub state: DomState,
-    pub key: winit::event::VirtualKeyCode,
+    pub text: SmolStr,
     pub pressed: bool,
 }
 

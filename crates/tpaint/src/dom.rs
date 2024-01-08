@@ -10,7 +10,8 @@ use taffy::{prelude::*, Overflow};
 use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
-    event::{KeyboardInput, MouseScrollDelta},
+    event::{KeyEvent, Modifiers, MouseScrollDelta},
+    platform::modifier_supplement::KeyEventExtModifierSupplement,
 };
 
 use crate::{
@@ -48,7 +49,7 @@ pub struct NodeContext {
 
 #[derive(Default, Clone, Copy, Debug)]
 pub struct KeyboardState {
-    pub modifiers: winit::event::ModifiersState,
+    pub modifiers: Modifiers,
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -913,7 +914,7 @@ impl Dom {
         let mut scroll = Vec2::ZERO;
         match delta {
             MouseScrollDelta::LineDelta(_x, y) => {
-                if self.state.keyboard_state.modifiers.shift() {
+                if self.state.keyboard_state.modifiers.state().shift_key() {
                     scroll.x -= y * tick_size;
                 } else {
                     scroll.y -= y * tick_size;
@@ -938,26 +939,26 @@ impl Dom {
         true
     }
 
-    pub fn on_char(&mut self, c: &char) -> bool {
-        let Some(focused) = self.state.focused else {
-            return false;
-        };
+    // pub fn on_char(&mut self, c: &char) -> bool {
+    //     let Some(focused) = self.state.focused else {
+    //         return false;
+    //     };
 
-        self.send_event_to_element(
-            focused.node_id,
-            "input",
-            Arc::new(events::Event::Input(events::InputEvent {
-                state: self.state.clone(),
-                text: *c,
-            })),
-            true,
-        );
+    //     self.send_event_to_element(
+    //         focused.node_id,
+    //         "input",
+    //         Arc::new(events::Event::Input(events::InputEvent {
+    //             state: self.state.clone(),
+    //             text: *c,
+    //         })),
+    //         true,
+    //     );
 
-        true
-    }
+    //     true
+    // }
 
-    pub fn on_keyboard_input(&mut self, input: &KeyboardInput) -> bool {
-        let Some(key) = input.virtual_keycode else {
+    pub fn on_keyboard_input(&mut self, input: &KeyEvent) -> bool {
+        let Some(text) = input.text.clone() else {
             return false;
         };
 
@@ -972,7 +973,7 @@ impl Dom {
                     "keydown",
                     Arc::new(events::Event::Key(events::KeyInput {
                         state: self.state.clone(),
-                        key,
+                        text,
                         pressed: true,
                     })),
                     true,
@@ -984,7 +985,7 @@ impl Dom {
                     "keyup",
                     Arc::new(events::Event::Key(events::KeyInput {
                         state: self.state.clone(),
-                        key,
+                        text,
                         pressed: false,
                     })),
                     true,

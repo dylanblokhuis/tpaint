@@ -15,9 +15,8 @@ tpaint_wgpu = { path = "../../crates/tpaint_wgpu" }
 example_ui = { path = "../example_ui" }
 wgpu = "0.18"
 log = "0.4"
-raw-window-handle = "0.6"
 simple_logger = "4.2"
-winit = "0.28"
+winit = { version = "0.29", features = ["rwh_05"] }
 pollster = "0.3.0"
 tracing-subscriber = { version = "0.3.17", optional = true }
 tracing-chrome = { version = "0.7.1", optional = true }
