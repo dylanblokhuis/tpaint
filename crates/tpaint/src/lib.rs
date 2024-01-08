@@ -89,6 +89,8 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "image";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
+            /// The source of the image or a texture id.<br>
+            /// Prefix texture ids with ``texture://``
             pub const src: AttributeDescription = ("src", None, false);
             pub const tabindex: AttributeDescription = ("tabindex", None, false);
         }

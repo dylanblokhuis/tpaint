@@ -9,6 +9,7 @@ use log::debug;
 use taffy::geometry::Point;
 use taffy::prelude::*;
 use taffy::style::{Overflow, Style};
+use usvg::TreeParsing;
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 
@@ -129,7 +130,16 @@ impl Tailwind {
         src: &str,
         tex_manager: &mut TextureManager,
     ) {
-        use usvg::TreeParsing;
+        // check texture:// prefix, meaning it's a texture id
+        if let Some(src) = src.strip_prefix("texture://") {
+            let Ok(id) = src.parse::<u64>() else {
+                log::error!("Failed to parse texture id: {}", src);
+                return;
+            };
+            self.texture_id = Some(epaint::TextureId::User(id));
+            self.set_aspect_ratio_layout(current_style, tex_manager);
+            return;
+        }
 
         let mut path = std::path::PathBuf::new();
         path.push("assets");
