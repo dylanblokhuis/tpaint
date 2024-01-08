@@ -137,7 +137,7 @@ impl Tailwind {
                 return;
             };
             self.texture_id = Some(epaint::TextureId::User(id));
-            self.set_aspect_ratio_layout(current_style, tex_manager);
+            // self.set_aspect_ratio_layout(current_style, tex_manager);
             return;
         }
 
