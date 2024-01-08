@@ -74,6 +74,7 @@ pub struct FocusedNode {
 
 #[derive(Debug, Clone)]
 pub struct DomState {
+    pub window_position: PhysicalPosition<i32>,
     pub hovered: Vec<NodeId>,
     pub focused: Option<FocusedNode>,
     pub selection: Vec<SelectedNode>,
@@ -126,6 +127,7 @@ impl Dom {
             element_id_mapping,
             common_tags_and_attr_keys,
             state: DomState {
+                window_position: Default::default(),
                 focused: None,
                 hovered: vec![],
                 selection: vec![],
@@ -1008,7 +1010,7 @@ impl Dom {
         }
     }
 
-    pub fn on_resize(&mut self) {
+    pub fn on_window_resize(&mut self) {
         // send all nodes a layout event
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let rect = dom.tree.get_node_context(id).unwrap().computed.rect;
@@ -1023,5 +1025,9 @@ impl Dom {
             );
             true
         });
+    }
+
+    pub fn on_window_moved(&mut self, position: &PhysicalPosition<i32>) {
+        self.state.window_position = *position;
     }
 }

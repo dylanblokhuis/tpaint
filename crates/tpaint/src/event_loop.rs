@@ -4,13 +4,13 @@ use dioxus::prelude::{ScopeId, VirtualDom, Scope, Element};
 use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive};
 
 
-use winit::{dpi::{PhysicalSize}, event_loop::EventLoopProxy, event::WindowEvent};
+use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy, event::WindowEvent};
 
 
 use crate::{
-    events::{DomEvent,},
+    events::DomEvent,
     renderer::{Renderer, ScreenDescriptor},
-    dom::{Dom},
+    dom::Dom,
 };
 
 pub struct DomEventLoop {
@@ -103,13 +103,18 @@ impl DomEventLoop {
         let mut repaint = false;
 
         match event {
+            WindowEvent::Moved(position) => {
+                let mut dom = self.dom.lock().unwrap();
+                dom.on_window_moved(position);
+                repaint = true;
+            }
             WindowEvent::Resized(size) => {
                 self.renderer.screen_descriptor = ScreenDescriptor {
                    size: *size,
                    pixels_per_point: self.renderer.screen_descriptor.pixels_per_point
                 };
                 let mut dom = self.dom.lock().unwrap();
-                dom.on_resize();
+                dom.on_window_resize();
                 repaint = true;
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
@@ -118,7 +123,7 @@ impl DomEventLoop {
                     pixels_per_point: *scale_factor as f32,
                 };
                 let mut dom = self.dom.lock().unwrap();
-                dom.on_resize();
+                dom.on_window_resize();
                 repaint = true;
             }
             WindowEvent::MouseInput { button, state, .. } => {
@@ -133,11 +138,6 @@ impl DomEventLoop {
                 let mut dom = self.dom.lock().unwrap();
                 repaint = dom.on_scroll(delta)
             }
-            // WindowEvent::
-            // WindowEvent::R(c) => {
-            //     let mut dom = self.dom.lock().unwrap();
-            //     repaint = dom.on_char(c);
-            // }
             WindowEvent::KeyboardInput { event, .. } => {
                 let mut dom = self.dom.lock().unwrap();
                 repaint = dom.on_keyboard_input(event);
