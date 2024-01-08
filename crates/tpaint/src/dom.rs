@@ -11,7 +11,6 @@ use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, KeyEvent, Modifiers, MouseScrollDelta},
-    platform::modifier_supplement::KeyEventExtModifierSupplement,
 };
 
 use crate::{
@@ -958,40 +957,37 @@ impl Dom {
     // }
 
     pub fn on_keyboard_input(&mut self, input: &KeyEvent) -> bool {
-        let Some(text) = input.text.clone() else {
-            return false;
-        };
-
         let Some(focused) = self.state.focused else {
             return false;
         };
 
-        match input.state {
-            winit::event::ElementState::Pressed => {
+        if input.state.is_pressed() {
+            if let Some(text) = &input.text {
                 self.send_event_to_element(
                     focused.node_id,
-                    "keydown",
-                    Arc::new(events::Event::Key(events::KeyInput {
+                    "input",
+                    Arc::new(events::Event::Input(events::InputEvent {
                         state: self.state.clone(),
-                        text,
-                        element_state: ElementState::Pressed,
-                    })),
-                    true,
-                );
-            }
-            winit::event::ElementState::Released => {
-                self.send_event_to_element(
-                    focused.node_id,
-                    "keyup",
-                    Arc::new(events::Event::Key(events::KeyInput {
-                        state: self.state.clone(),
-                        text,
-                        element_state: ElementState::Released,
+                        text: text.clone(),
                     })),
                     true,
                 );
             }
         }
+
+        self.send_event_to_element(
+            focused.node_id,
+            match input.state {
+                winit::event::ElementState::Pressed => "keydown",
+                winit::event::ElementState::Released => "keyup",
+            },
+            Arc::new(events::Event::Key(events::KeyInput {
+                state: self.state.clone(),
+                physical_key: input.physical_key,
+                element_state: input.state,
+            })),
+            true,
+        );
 
         true
     }
