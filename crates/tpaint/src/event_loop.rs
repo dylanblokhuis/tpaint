@@ -22,6 +22,7 @@ pub struct DomEventLoop {
 #[derive(Clone)]
 pub struct DomContext {
     pub texture_manager: Arc<Mutex<TextureManager>>,
+    #[cfg(feature = "images")]
     pub client: reqwest::Client,
 }
 
@@ -50,6 +51,7 @@ impl DomEventLoop {
             move || {
                 let mut vdom = VirtualDom::new(app).with_root_context(root_context).with_root_context(DomContext {
                     texture_manager,
+                    #[cfg(feature = "images")]
                     client: reqwest::Client::new(),
                 });
                 let mutations = vdom.rebuild();

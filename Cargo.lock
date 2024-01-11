@@ -4078,7 +4078,6 @@ dependencies = [
  "taffy",
  "tokio",
  "tracing",
- "usvg",
  "winit 0.29.9",
 ]
 

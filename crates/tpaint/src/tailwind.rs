@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use epaint::emath::Align2;
-use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Rounding, TextureManager};
+use epaint::{Color32, FontFamily, FontId, Rounding};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;
 use taffy::prelude::*;
 use taffy::style::{Overflow, Style};
-use usvg::TreeParsing;
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 

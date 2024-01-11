@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use epaint::{TextureId, ColorImage, textures::TextureOptions};
-use usvg::TreeParsing;
 use crate::{prelude::*, event_loop::DomContext};
+use resvg::usvg::TreeParsing;
 
 #[derive(Props, PartialEq, Clone, Debug)]
 pub struct ImageProps<'a> {
@@ -40,8 +40,10 @@ pub fn Image<'a>(cx: Scope<'a, ImageProps<'a>>) -> Element {
       };
 
       let handle_svg = |src: String, bytes: &[u8]| {
-            let opt = usvg::Options::default();
-            let rtree = usvg::Tree::from_data(&bytes, &opt)
+          
+    
+            let opt = resvg::usvg::Options::default();
+            let rtree = resvg::usvg::Tree::from_data(&bytes, &opt)
                 .map_err(|err| err.to_string())
                 .expect("Failed to parse SVG file");
 
