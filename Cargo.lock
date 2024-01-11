@@ -172,7 +172,7 @@ checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 [[package]]
 name = "ash"
 version = "0.37.0+1.3.271"
-source = "git+https://github.com/ash-rs/ash.git#e7dab7cb66b6a2fd2d3b0261f9ba4870cb30e477"
+source = "git+https://github.com/ash-rs/ash.git#e99222521e5fa28920927c3708ca7555df80a662"
 dependencies = [
  "libloading 0.8.1",
 ]
@@ -189,7 +189,7 @@ dependencies = [
 [[package]]
 name = "ash-window"
 version = "0.12.0"
-source = "git+https://github.com/ash-rs/ash.git#e7dab7cb66b6a2fd2d3b0261f9ba4870cb30e477"
+source = "git+https://github.com/ash-rs/ash.git#e99222521e5fa28920927c3708ca7555df80a662"
 dependencies = [
  "ash 0.37.0+1.3.271",
  "raw-window-handle 0.5.2",
@@ -222,9 +222,9 @@ dependencies = [
 
 [[package]]
 name = "async-lock"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7125e42787d53db9dd54261812ef17e937c95a51e4d291373b670342fa44310c"
+checksum = "d034b430882f8381900d3fe6f0aaa3ad94f2cb4ac519b429692a1bc2dda4ae7b"
 dependencies = [
  "event-listener 4.0.3",
  "event-listener-strategy",
@@ -1104,7 +1104,7 @@ checksum = "9ea835d29036a4087793836fa931b08837ad5e957da9e23886b29586fb9b6650"
 [[package]]
 name = "ecolor"
 version = "0.25.0"
-source = "git+https://github.com/emilk/egui#401de056306d632b1082247e152c93479d88aa20"
+source = "git+https://github.com/emilk/egui#301c72ba22da8f29596d65757cf3dacdf5309985"
 dependencies = [
  "bytemuck",
  "serde",
@@ -1119,7 +1119,7 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 [[package]]
 name = "emath"
 version = "0.25.0"
-source = "git+https://github.com/emilk/egui#401de056306d632b1082247e152c93479d88aa20"
+source = "git+https://github.com/emilk/egui#301c72ba22da8f29596d65757cf3dacdf5309985"
 dependencies = [
  "bytemuck",
  "serde",
@@ -1158,7 +1158,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.25.0"
-source = "git+https://github.com/emilk/egui#401de056306d632b1082247e152c93479d88aa20"
+source = "git+https://github.com/emilk/egui#301c72ba22da8f29596d65757cf3dacdf5309985"
 dependencies = [
  "ab_glyph",
  "ahash 0.8.7",
@@ -1579,9 +1579,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.11"
+version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe9006bed769170c11f845cf00c7c1e9092aeb3f268e007c3e760ac68008070f"
+checksum = "190092ea657667030ac6a35e305e62fc4dd69fd98ac98631e5d3a2b1575a12b5"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -1801,9 +1801,9 @@ checksum = "d196ffc1627db18a531359249b2bf8416178d84b729f3cebeb278f285fb9b58c"
 
 [[package]]
 name = "h2"
-version = "0.3.22"
+version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d6250322ef6e60f93f9a2162799302cd6f68f79f6e5d85c8c16f14d1d958178"
+checksum = "b553656127a00601c8ae5590fcfdc118e4083a7924b6cf4ffc1ea4b99dc429d7"
 dependencies = [
  "bytes",
  "fnv",
@@ -3838,9 +3838,9 @@ dependencies = [
 
 [[package]]
 name = "termcolor"
-version = "1.4.0"
+version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff1bc3d3f05aff0403e8ac0d92ced918ec05b666a43f83297ccef5bea8a3d449"
+checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
 dependencies = [
  "winapi-util",
 ]
@@ -5153,9 +5153,9 @@ dependencies = [
 
 [[package]]
 name = "winnow"
-version = "0.5.33"
+version = "0.5.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7520bbdec7211caa7c4e682eb1fbe07abe20cee6756b6e00f537c82c11816aa"
+checksum = "b7cf47b659b318dccbd69cc4797a39ae128f533dce7902a1096044d1967b9c16"
 dependencies = [
  "memchr",
 ]
