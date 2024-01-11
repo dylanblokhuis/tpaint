@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(unsafe_code)]
 
+use simple_logger::SimpleLogger;
 use tpaint::DomEventLoop;
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
@@ -24,6 +25,8 @@ fn main() {
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(chrome_layer))
         .expect("set up the subscriber");
 
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
+    
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event()
         .build()
         .unwrap();

@@ -2,7 +2,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 
-mod components;
+pub mod components;
 mod dom;
 mod event_loop;
 mod events;
@@ -70,6 +70,9 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
+            
+            /// Prefix texture ids with ``texture://``
+            pub const src: AttributeDescription = ("src", None, false);
 
             pub const tabindex: AttributeDescription = ("tabindex", None, false);
             pub const text_cursor: AttributeDescription = ("text_cursor", None, false);
@@ -79,20 +82,6 @@ pub mod prelude {
                 ("text_selection_start", None, false);
             pub const global_selection_mode: AttributeDescription =
                 ("global_selection_mode", None, false);
-        }
-
-        #[cfg(feature = "images")]
-        pub struct image;
-
-        #[cfg(feature = "images")]
-        impl image {
-            pub const TAG_NAME: &'static str = "image";
-            pub const NAME_SPACE: Option<&'static str> = None;
-            pub const class: AttributeDescription = ("class", None, false);
-            /// The source of the image or a texture id.<br>
-            /// Prefix texture ids with ``texture://``
-            pub const src: AttributeDescription = ("src", None, false);
-            pub const tabindex: AttributeDescription = ("tabindex", None, false);
         }
 
         pub mod events {
