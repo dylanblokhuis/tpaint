@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{time::Instant, sync::{Mutex, Arc}};
 
 use epaint::{
     text::FontDefinitions,
@@ -23,7 +23,7 @@ pub struct ScreenDescriptor {
 pub struct Renderer {
     pub screen_descriptor: ScreenDescriptor,
     pub fonts: Fonts,
-    pub tex_manager: TextureManager,
+    pub tex_manager: Arc<Mutex<TextureManager>>,
     pub shapes: Vec<ClippedShape>,
     pub tessellator: Tessellator,
 }
@@ -64,7 +64,7 @@ impl Renderer {
                 size: window_size,
             },
             fonts,
-            tex_manager,
+            tex_manager: Arc::new(Mutex::new(tex_manager)),
             shapes: Vec::new(),
             tessellator,
         }
@@ -114,6 +114,7 @@ impl Renderer {
                 let styling_hash = TailwindCache {
                     class: class.cloned(),
                     state: style_state.clone(),
+                    texture_id: node.styling.texture_id,
                 };
 
                 if node.styling.cache == styling_hash {
@@ -122,23 +123,15 @@ impl Renderer {
                 node.styling.cache = styling_hash;
 
                 let style = match &(*node.tag) {
-                    #[cfg(feature = "images")]
-                    "image" => {
-                        let mut style = node
+                    "view" => {
+                        if let Some(src) = node.attrs.get("src") {
+                            node.styling.set_texture(src);
+                        }
+                       
+                        node
                             .styling
-                            .set_styling(class.unwrap_or(&"".into()), &style_state);
-
-                        node.styling.set_texture(
-                            &mut style,
-                            node.attrs.get("src").unwrap_or(&"".into()),
-                            &mut self.tex_manager,
-                        );
-                        style
+                            .set_styling(class.unwrap_or(&"".into()), &style_state)
                     }
-                    "view" => node
-                        .styling
-                        .set_styling(class.unwrap_or(&"".into()), &style_state),
-
                     "text" => {
                         let [node, parent] = dom
                             .tree
@@ -170,6 +163,7 @@ impl Renderer {
             available_space: taffy::geometry::Size<taffy::style::AvailableSpace>,
             node_context: Option<&mut NodeContext>,
             fonts: &Fonts,
+            texture_manager: &TextureManager
         ) -> Size<f32> {
             if let Size {
                 width: Some(width),
@@ -182,39 +176,58 @@ impl Renderer {
             match node_context {
                 None => Size::ZERO,
                 Some(node_context) => {
-                    if node_context.tag != "text".into() {
-                        return Size::ZERO;
-                    }
+                    match &*node_context.tag {
+                        "view" => {
+                            let Some(texture_id) = node_context.styling.texture_id else {
+                                return Size::ZERO;
+                            };
+                            let meta = texture_manager.meta(texture_id).unwrap();
 
-                    let galley = if let AvailableSpace::Definite(space) = available_space.width {
-                        fonts.layout(
-                            node_context
-                                .attrs
-                                .get("value")
-                                .unwrap_or(&"".into())
-                                .to_string(),
-                            node_context.styling.text.font.clone(),
-                            node_context.styling.text.color,
-                            space,
-                        )
-                    } else {
-                        fonts.layout_no_wrap(
-                            node_context
-                                .attrs
-                                .get("value")
-                                .unwrap_or(&"".into())
-                                .to_string(),
-                            node_context.styling.text.font.clone(),
-                            node_context.styling.text.color,
-                        )
-                    };
+                            let image_width = meta.size[0] as f32;
+                            let image_height = meta.size[1] as f32;
 
-                    let size = galley.size();
-                    node_context.computed.galley = Some(galley);
-
-                    Size {
-                        width: size.x,
-                        height: size.y,
+                            match (known_dimensions.width, known_dimensions.height) {
+                                (Some(width), Some(height)) => Size { width, height },
+                                (Some(width), None) => Size { width, height: (width / image_width) * image_height },
+                                (None, Some(height)) => Size { width: (height / image_height) * image_width, height },
+                                (None, None) => Size { width: image_width, height: image_height },
+                            }
+                        },
+                        "text" => {
+                            let galley = if let AvailableSpace::Definite(space) = available_space.width {
+                                fonts.layout(
+                                    node_context
+                                        .attrs
+                                        .get("value")
+                                        .unwrap_or(&"".into())
+                                        .to_string(),
+                                    node_context.styling.text.font.clone(),
+                                    node_context.styling.text.color,
+                                    space,
+                                )
+                            } else {
+                                fonts.layout_no_wrap(
+                                    node_context
+                                        .attrs
+                                        .get("value")
+                                        .unwrap_or(&"".into())
+                                        .to_string(),
+                                    node_context.styling.text.font.clone(),
+                                    node_context.styling.text.color,
+                                )
+                            };
+        
+                            let size = galley.size();
+                            node_context.computed.galley = Some(galley);
+        
+                            Size {
+                                width: size.x,
+                                height: size.y,
+                            }
+                        }
+                        _ => {
+                            Size::ZERO
+                        }
                     }
                 }
             }
@@ -244,6 +257,7 @@ impl Renderer {
                             available_space,
                             node_context,
                             &self.fonts,
+                            &self.tex_manager.lock().unwrap()
                         )
                     },
                 )
@@ -508,12 +522,13 @@ impl Renderer {
 
         let texture_delta = {
             let font_image_delta = self.fonts.font_image_delta();
+            let mut tex_manager = self.tex_manager.lock().unwrap();
             if let Some(font_image_delta) = font_image_delta {
-                self.tex_manager
+                tex_manager
                     .set(epaint::TextureId::default(), font_image_delta);
             }
 
-            self.tex_manager.take_delta()
+            tex_manager.take_delta()
         };
 
         let mut clipped_primitives: Vec<ClippedPrimitive> = Vec::with_capacity(self.shapes.len());

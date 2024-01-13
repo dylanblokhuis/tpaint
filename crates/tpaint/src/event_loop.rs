@@ -1,7 +1,7 @@
 use std::{sync::{Arc, Mutex}, fmt::Debug, ops::Deref};
 
 use dioxus::prelude::{ScopeId, VirtualDom, Scope, Element};
-use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive};
+use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, TextureManager};
 
 
 use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy, event::WindowEvent};
@@ -17,6 +17,13 @@ pub struct DomEventLoop {
     pub dom: Arc<Mutex<Dom>>,
     pub update_scope_sender: tokio::sync::mpsc::UnboundedSender<ScopeId>,
     pub renderer: Renderer,
+}
+
+#[derive(Clone)]
+pub struct DomContext {
+    pub texture_manager: Arc<Mutex<TextureManager>>,
+    #[cfg(feature = "images")]
+    pub client: reqwest::Client,
 }
 
 impl DomEventLoop {
@@ -36,12 +43,17 @@ impl DomEventLoop {
         dioxus_hot_reload::connect(move |msg| {
             let _ = hot_reload_tx.send(msg);
         });
-    
+        let renderer = Renderer::new(window_size, pixels_per_point, FontDefinitions::default());
         
         std::thread::spawn({
             let dom = dom.clone();
+            let texture_manager = renderer.tex_manager.clone();
             move || {
-                let mut vdom = VirtualDom::new(app).with_root_context(root_context);
+                let mut vdom = VirtualDom::new(app).with_root_context(root_context).with_root_context(DomContext {
+                    texture_manager,
+                    #[cfg(feature = "images")]
+                    client: reqwest::Client::new(),
+                });
                 let mutations = vdom.rebuild();
                 // dbg!(&mutations);
                 dom.lock().unwrap().apply_mutations(mutations);
@@ -90,7 +102,7 @@ impl DomEventLoop {
         DomEventLoop {
             dom,
             update_scope_sender,
-            renderer: Renderer::new(window_size, pixels_per_point, FontDefinitions::default()),
+            renderer,
         }
     }
 

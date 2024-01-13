@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use epaint::emath::Align2;
-use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Rounding, TextureManager};
+use epaint::{Color32, FontFamily, FontId, Rounding};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;
 use taffy::prelude::*;
 use taffy::style::{Overflow, Style};
-use usvg::TreeParsing;
 
 type Colors = HashMap<&'static str, HashMap<&'static str, [u8; 4]>>;
 
@@ -73,6 +71,7 @@ impl Default for ScrollbarStyling {
 pub struct TailwindCache {
     pub class: Option<Arc<str>>,
     pub state: StyleState,
+    pub texture_id: Option<epaint::TextureId>,
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -126,9 +125,7 @@ impl Tailwind {
 
     pub fn set_texture(
         &mut self,
-        current_style: &mut Style,
         src: &str,
-        tex_manager: &mut TextureManager,
     ) {
         // check texture:// prefix, meaning it's a texture id
         if let Some(src) = src.strip_prefix("texture://") {
@@ -136,91 +133,8 @@ impl Tailwind {
                 log::error!("Failed to parse texture id: {}", src);
                 return;
             };
-            self.texture_id = Some(epaint::TextureId::User(id));
-            // self.set_aspect_ratio_layout(current_style, tex_manager);
+            self.texture_id = Some(epaint::TextureId::Managed(id));
             return;
-        }
-
-        let mut path = std::path::PathBuf::new();
-        path.push("assets");
-        path.push(src);
-
-        if self.texture_id.is_some() {
-            self.set_aspect_ratio_layout(current_style, tex_manager);
-            return;
-        }
-
-        let extension = path.extension().unwrap().to_str().unwrap();
-
-        let id = if extension.contains("svg") {
-            let opt = usvg::Options::default();
-            let svg_bytes = std::fs::read(&path).unwrap();
-            let rtree = usvg::Tree::from_data(&svg_bytes, &opt)
-                .map_err(|err| err.to_string())
-                .expect("Failed to parse SVG file");
-
-            let rtree = resvg::Tree::from_usvg(&rtree);
-            let pixmap_size = rtree.size.to_int_size();
-            let mut pixmap =
-                resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
-            rtree.render(resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-
-            tex_manager.alloc(
-                path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
-                    [pixmap_size.width() as usize, pixmap_size.height() as usize],
-                    pixmap.data(),
-                ))),
-                TextureOptions::LINEAR,
-            )
-        } else {
-            let Ok(reader) = image::io::Reader::open(&path) else {
-                log::error!("Failed to open image: {}", path.display());
-                return;
-            };
-            let Ok(img) = reader.decode() else {
-                log::error!("Failed to decode image: {}", path.display());
-                return;
-            };
-            let size = [img.width() as usize, img.height() as usize];
-            let rgba = img.to_rgba8();
-
-            tex_manager.alloc(
-                path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(size, &rgba))),
-                TextureOptions::LINEAR,
-            )
-        };
-
-        self.texture_id = Some(id);
-        self.set_aspect_ratio_layout(current_style, tex_manager);
-    }
-
-    #[tracing::instrument(skip_all, name = "Tailwind::set_aspect_ratio_layout")]
-    fn set_aspect_ratio_layout(&self, style: &mut Style, tex_manager: &TextureManager) {
-        let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
-        let image_size = [meta.size[0] as f32, meta.size[1] as f32];
-        let aspect_ratio = image_size[0] / image_size[1];
-
-        if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
-            style.size.width = Dimension::Length(image_size[0]);
-            style.size.height = Dimension::Length(image_size[1]);
-        }
-        // if we're scaling the height based on the new width
-        else if style.size.width != Dimension::AUTO && style.size.height == Dimension::AUTO {
-            let new_width = match style.size.width {
-                Dimension::Length(val) => val,
-                _ => image_size[0], // use old width if it's not a length
-            };
-            style.size.height = Dimension::Length(new_width / aspect_ratio);
-        }
-        // if we're scaling the width based on the new height
-        else if style.size.height != Dimension::AUTO && style.size.width == Dimension::AUTO {
-            let new_height = match style.size.height {
-                Dimension::Length(val) => val,
-                _ => image_size[1], // use old height if it's not a length
-            };
-            style.size.width = Dimension::Length(new_height * aspect_ratio);
         }
     }
 
