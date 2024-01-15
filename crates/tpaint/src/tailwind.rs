@@ -327,11 +327,39 @@ impl Tailwind {
         }
 
         if let Some(class) = class.strip_prefix("rounded-") {
-            let value = class.parse::<f32>().unwrap_or(0.0);
-            self.border.radius.ne = value;
-            self.border.radius.nw = value;
-            self.border.radius.se = value;
-            self.border.radius.sw = value;
+            if let Ok(value) = class.parse::<f32>() {
+                self.border.radius.ne = value;
+                self.border.radius.nw = value;
+                self.border.radius.se = value;
+                self.border.radius.sw = value;
+            } else {
+                if let Some(class) = class.strip_prefix("tl-") {
+                    self.border.radius.nw = class.parse::<f32>().unwrap_or(0.0);
+                }
+
+                if let Some(class) = class.strip_prefix("tr-") {
+                    self.border.radius.ne = class.parse::<f32>().unwrap_or(0.0);
+                }
+
+                if let Some(class) = class.strip_prefix("bl-") {
+                    self.border.radius.sw = class.parse::<f32>().unwrap_or(0.0);
+                }
+
+                if let Some(class) = class.strip_prefix("br-") {
+                    self.border.radius.se = class.parse::<f32>().unwrap_or(0.0);
+                }
+
+                // t and b
+                if let Some(class) = class.strip_prefix("t-") {
+                    self.border.radius.ne = class.parse::<f32>().unwrap_or(0.0);
+                    self.border.radius.nw = class.parse::<f32>().unwrap_or(0.0);
+                }
+
+                if let Some(class) = class.strip_prefix("b-") {
+                    self.border.radius.se = class.parse::<f32>().unwrap_or(0.0);
+                    self.border.radius.sw = class.parse::<f32>().unwrap_or(0.0);
+                }
+            }
         }
 
         if let Some(class) = class.strip_prefix("border-") {
