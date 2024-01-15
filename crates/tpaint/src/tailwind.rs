@@ -29,7 +29,6 @@ pub struct Border {
 #[derive(Clone, PartialEq, Debug)]
 pub struct TextStyling {
     pub color: Color32,
-    pub align: Align2,
     pub font: FontId,
     pub selection_color: Color32,
 }
@@ -38,7 +37,6 @@ impl Default for TextStyling {
     fn default() -> Self {
         Self {
             color: Color32::BLACK,
-            align: Align2::LEFT_TOP,
             font: FontId {
                 size: 16.0,
                 family: FontFamily::default(),
@@ -123,10 +121,7 @@ impl Tailwind {
         layout_style
     }
 
-    pub fn set_texture(
-        &mut self,
-        src: &str,
-    ) {
+    pub fn set_texture(&mut self, src: &str) {
         // check texture:// prefix, meaning it's a texture id
         if let Some(src) = src.strip_prefix("texture://") {
             let Ok(id) = src.parse::<u64>() else {

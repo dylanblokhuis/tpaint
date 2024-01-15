@@ -5,7 +5,7 @@
 pub mod components;
 mod dom;
 mod event_loop;
-mod events;
+pub mod events;
 mod renderer;
 mod tailwind;
 
@@ -70,7 +70,7 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
-            
+
             /// Prefix texture ids with ``texture://``
             pub const src: AttributeDescription = ("src", None, false);
 
