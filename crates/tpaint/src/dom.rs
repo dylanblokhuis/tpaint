@@ -832,7 +832,9 @@ impl Dom {
 
         // find first element with tabindex
         self.state.focused = self.state.hovered.clone().iter().rev().find_map(|id| {
-            let node = self.tree.get_node_context(*id).unwrap();
+            let Some(node) = self.tree.get_node_context(*id) else {
+                return None;
+            };
 
             if node.attrs.get("tabindex").is_some() || node.listeners.contains("click") {
                 let node = FocusedNode {
