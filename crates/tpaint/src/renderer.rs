@@ -1,4 +1,7 @@
-use std::{time::Instant, sync::{Mutex, Arc}};
+use std::{
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use epaint::{
     text::FontDefinitions,
@@ -108,6 +111,7 @@ impl Renderer {
                         .as_ref()
                         .map(|id2| id2.node_id == id)
                         .unwrap_or(false),
+                    active: *node.attrs.get("is_active").unwrap_or(&"".into()) == "true".into(),
                 };
 
                 let class = node.attrs.get("class");
@@ -127,9 +131,8 @@ impl Renderer {
                         if let Some(src) = node.attrs.get("src") {
                             node.styling.set_texture(src);
                         }
-                       
-                        node
-                            .styling
+
+                        node.styling
                             .set_styling(class.unwrap_or(&"".into()), &style_state)
                     }
                     "text" => {
@@ -163,7 +166,7 @@ impl Renderer {
             available_space: taffy::geometry::Size<taffy::style::AvailableSpace>,
             node_context: Option<&mut NodeContext>,
             fonts: &Fonts,
-            texture_manager: &TextureManager
+            texture_manager: &TextureManager,
         ) -> Size<f32> {
             if let Size {
                 width: Some(width),
@@ -175,61 +178,67 @@ impl Renderer {
 
             match node_context {
                 None => Size::ZERO,
-                Some(node_context) => {
-                    match &*node_context.tag {
-                        "view" => {
-                            let Some(texture_id) = node_context.styling.texture_id else {
-                                return Size::ZERO;
-                            };
-                            let meta = texture_manager.meta(texture_id).unwrap();
+                Some(node_context) => match &*node_context.tag {
+                    "view" => {
+                        let Some(texture_id) = node_context.styling.texture_id else {
+                            return Size::ZERO;
+                        };
+                        let meta = texture_manager.meta(texture_id).unwrap();
 
-                            let image_width = meta.size[0] as f32;
-                            let image_height = meta.size[1] as f32;
+                        let image_width = meta.size[0] as f32;
+                        let image_height = meta.size[1] as f32;
 
-                            match (known_dimensions.width, known_dimensions.height) {
-                                (Some(width), Some(height)) => Size { width, height },
-                                (Some(width), None) => Size { width, height: (width / image_width) * image_height },
-                                (None, Some(height)) => Size { width: (height / image_height) * image_width, height },
-                                (None, None) => Size { width: image_width, height: image_height },
-                            }
-                        },
-                        "text" => {
-                            let galley = if let AvailableSpace::Definite(space) = available_space.width {
-                                fonts.layout(
-                                    node_context
-                                        .attrs
-                                        .get("value")
-                                        .unwrap_or(&"".into())
-                                        .to_string(),
-                                    node_context.styling.text.font.clone(),
-                                    node_context.styling.text.color,
-                                    space,
-                                )
-                            } else {
-                                fonts.layout_no_wrap(
-                                    node_context
-                                        .attrs
-                                        .get("value")
-                                        .unwrap_or(&"".into())
-                                        .to_string(),
-                                    node_context.styling.text.font.clone(),
-                                    node_context.styling.text.color,
-                                )
-                            };
-        
-                            let size = galley.size();
-                            node_context.computed.galley = Some(galley);
-        
-                            Size {
-                                width: size.x,
-                                height: size.y,
-                            }
-                        }
-                        _ => {
-                            Size::ZERO
+                        match (known_dimensions.width, known_dimensions.height) {
+                            (Some(width), Some(height)) => Size { width, height },
+                            (Some(width), None) => Size {
+                                width,
+                                height: (width / image_width) * image_height,
+                            },
+                            (None, Some(height)) => Size {
+                                width: (height / image_height) * image_width,
+                                height,
+                            },
+                            (None, None) => Size {
+                                width: image_width,
+                                height: image_height,
+                            },
                         }
                     }
-                }
+                    "text" => {
+                        let galley = if let AvailableSpace::Definite(space) = available_space.width
+                        {
+                            fonts.layout(
+                                node_context
+                                    .attrs
+                                    .get("value")
+                                    .unwrap_or(&"".into())
+                                    .to_string(),
+                                node_context.styling.text.font.clone(),
+                                node_context.styling.text.color,
+                                space,
+                            )
+                        } else {
+                            fonts.layout_no_wrap(
+                                node_context
+                                    .attrs
+                                    .get("value")
+                                    .unwrap_or(&"".into())
+                                    .to_string(),
+                                node_context.styling.text.font.clone(),
+                                node_context.styling.text.color,
+                            )
+                        };
+
+                        let size = galley.size();
+                        node_context.computed.galley = Some(galley);
+
+                        Size {
+                            width: size.x,
+                            height: size.y,
+                        }
+                    }
+                    _ => Size::ZERO,
+                },
             }
         }
 
@@ -257,7 +266,7 @@ impl Renderer {
                             available_space,
                             node_context,
                             &self.fonts,
-                            &self.tex_manager.lock().unwrap()
+                            &self.tex_manager.lock().unwrap(),
                         )
                     },
                 )
@@ -524,8 +533,7 @@ impl Renderer {
             let font_image_delta = self.fonts.font_image_delta();
             let mut tex_manager = self.tex_manager.lock().unwrap();
             if let Some(font_image_delta) = font_image_delta {
-                tex_manager
-                    .set(epaint::TextureId::default(), font_image_delta);
+                tex_manager.set(epaint::TextureId::default(), font_image_delta);
             }
 
             tex_manager.take_delta()

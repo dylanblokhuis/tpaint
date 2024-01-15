@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use epaint::emath::Align2;
 use epaint::{Color32, FontFamily, FontId, Rounding};
 use lazy_static::lazy_static;
 use log::debug;
@@ -86,6 +85,7 @@ pub struct Tailwind {
 pub struct StyleState {
     pub hovered: bool,
     pub focused: bool,
+    pub active: bool,
 }
 
 impl Tailwind {
@@ -113,6 +113,11 @@ impl Tailwind {
             }
             if state.focused {
                 if let Some(class) = class.strip_prefix("focus:") {
+                    self.handle_class(&mut layout_style, &COLORS, class);
+                }
+            }
+            if state.active {
+                if let Some(class) = class.strip_prefix("active:") {
                     self.handle_class(&mut layout_style, &COLORS, class);
                 }
             }

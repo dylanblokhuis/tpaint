@@ -74,6 +74,9 @@ pub mod prelude {
             /// Prefix texture ids with ``texture://``
             pub const src: AttributeDescription = ("src", None, false);
 
+            /// Will activate any classes prefixed with ``active:`` if this is true
+            pub const is_active: AttributeDescription = ("is_active", None, false);
+
             pub const tabindex: AttributeDescription = ("tabindex", None, false);
             pub const text_cursor: AttributeDescription = ("text_cursor", None, false);
             pub const text_cursor_visible: AttributeDescription =

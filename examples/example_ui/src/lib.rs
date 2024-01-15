@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use tpaint::{prelude::*, components::image::Image};
+use tpaint::{components::image::Image, prelude::*};
 
 pub fn app(cx: Scope) -> Element {
     render! {
@@ -21,7 +21,8 @@ pub fn app(cx: Scope) -> Element {
                 }
 
                 view {
-                    class: "grow-0 w-full",
+                    class: "grow-0 w-full bg-red-500 active:bg-blue-600",
+                    is_active: true,
 
                     "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus ultrices vel urna nec dignissim. Nam ultrices elit id leo blandit sollicitudin. Phasellus dapibus augue ut augue condimentum, suscipit rhoncus ante elementum. Donec ut ante vel leo sodales iaculis in id neque. Praesent finibus risus egestas nisl fermentum, sit amet porttitor erat finibus. Aliquam nibh turpis, bibendum ut quam viverra, ullamcorper rutrum ex. Mauris arcu purus, venenatis vitae accumsan vitae, placerat id dolor. Mauris suscipit interdum lectus, ut ornare enim semper id. Sed et tempus nibh, vitae condimentum tortor. Quisque quis leo at sapien rutrum fermentum. Morbi iaculis, dui eleifend euismod malesuada, ligula ex semper velit, sit amet facilisis enim massa ut lacus. Ut sagittis tellus non sapien ornare feugiat. Curabitur a pretium massa. Integer pharetra risus vel quam mattis porta. Etiam suscipit rutrum cursus. Mauris aliquam ut ipsum et tincidunt."
                 }
@@ -33,7 +34,7 @@ pub fn app(cx: Scope) -> Element {
 
                 Image {
                     src: "https://placehold.co/600x400/png".to_string(),
-                }                
+                }
             }
 
             view {
@@ -42,9 +43,9 @@ pub fn app(cx: Scope) -> Element {
                     src: "https://placehold.co/600x400".to_string(),
                 }
             }
-            
 
-            
+
+
 
             (0..10).map(|_| rsx! {
                 view {
