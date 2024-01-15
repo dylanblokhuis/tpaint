@@ -10,8 +10,8 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Text color
 - Hot reloading, use the ``hot-reload`` feature
 - Scrolling
-- Images through img tag, with 'src' attribute. Disk only and supports svg, png and jpg. More can easily be added through the ``image`` crate
-- Input text field
+- Async images and vector graphics through ``Image`` component, with 'src' attribute.
+- Grid and flexbox (through Taffy)
   
 ### What needs implementing:
 
@@ -21,6 +21,7 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Radio field
 - Select field
 - Textarea field
+- Input text field
 - Links
 - Clicking the scrollbars
 - many more..
@@ -31,3 +32,5 @@ Due to the nature of egui being ported to multiple backends already, thanks to a
 
 - glow (OpenGL)
 - wgpu
+
+You can add your own backend easily!
