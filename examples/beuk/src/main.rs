@@ -140,6 +140,8 @@ fn main() {
                     ctx.recreate_swapchain(new_inner_size.width, new_inner_size.height);
                 }
 
+                // window.request_redraw();
+
                 let repaint = app.on_window_event(window_event);
                 if repaint {
                     window.request_redraw();

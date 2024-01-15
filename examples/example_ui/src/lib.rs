@@ -1,19 +1,19 @@
 use dioxus::prelude::*;
-use tpaint::prelude::*;
+use tpaint::{prelude::*, components::image::Image};
 
 pub fn app(cx: Scope) -> Element {
     render! {
         view {
-            class: "flex-col gap-y-10",
+            class: "flex-col gap-y-10 w-full overflow-y-scroll scrollbar-default bg-white",
 
             view {
-                class: "p-10 bg-indigo-300 gap-x-40 shrink-0",
+                class: "p-10 gap-x-40 shrink-0 flex-col",
 
                 view {
                     class: "w-200 h-200 p-15 flex-nowrap bg-rose-900 overflow-y-scroll overflow-x-scroll scrollbar-default",
 
                     view {
-                        class: "w-150 h-100 shrink-0 bg-blue-300",
+                        class: "w-150 h-100 bg-blue-300 focus:bg-indigo-800 shrink-0 ",
                     }
                     view {
                         class: "w-300 h-300 shrink-0 bg-rose-500",
@@ -27,9 +27,29 @@ pub fn app(cx: Scope) -> Element {
                 }
             }
 
-            (0..100).map(|_| rsx! {
+
+            view {
+                class: "w-200 h-200 bg-black p-10",
+
+                Image {
+                    src: "https://placehold.co/600x400/png".to_string(),
+                }                
+            }
+
+            view {
+                class: "bg-red-900 p-10",
+                Image {
+                    src: "https://placehold.co/600x400".to_string(),
+                }
+            }
+            
+
+            
+
+            (0..10).map(|_| rsx! {
                 view {
-                    class: "w-full h-50 p-10 bg-blue-900",
+                    class: "w-full p-20 bg-blue-900 hover:p-30",
+                    "Lorem ipsum dolor sit amet"
                 }
             })
         }

@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use epaint::emath::Align2;
-use epaint::textures::TextureOptions;
-use epaint::{Color32, ColorImage, FontFamily, FontId, Fonts, Galley, Rounding, TextureManager};
+use epaint::{Color32, FontFamily, FontId, Rounding};
 use lazy_static::lazy_static;
 use log::debug;
 use taffy::geometry::Point;
@@ -69,8 +68,15 @@ impl Default for ScrollbarStyling {
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
+pub struct TailwindCache {
+    pub class: Option<Arc<str>>,
+    pub state: StyleState,
+    pub texture_id: Option<epaint::TextureId>,
+}
+
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct Tailwind {
-    pub node: Option<taffy::tree::NodeId>,
+    pub cache: TailwindCache,
     pub texture_id: Option<epaint::TextureId>,
     pub background_color: Color32,
     pub border: Border,
@@ -78,188 +84,60 @@ pub struct Tailwind {
     pub scrollbar: ScrollbarStyling,
 }
 
+#[derive(Default, Clone, Copy, PartialEq, Debug)]
 pub struct StyleState {
     pub hovered: bool,
     pub focused: bool,
 }
 
 impl Tailwind {
-    #[tracing::instrument(skip_all, name = "Tailwind::set_styling")]
-    pub fn set_styling(&mut self, taffy: &mut Taffy, class: &str, state: &StyleState) -> &mut Self {
-        let classes = class.split_whitespace();
-
+    pub fn set_styling(&mut self, class: &str, state: &StyleState) -> Style {
         // todo: perhaps find a way to this lazily
-        let mut style = Style::default();
         self.background_color = Default::default();
         self.border = Default::default();
         self.text = Default::default();
 
-        for class in classes {
-            self.handle_class(&mut style, &COLORS, class);
+        self.get_style(class, state)
+    }
+
+    pub fn get_style(&mut self, class: &str, state: &StyleState) -> Style {
+        let mut layout_style = Style::default();
+
+        for class in class.split_whitespace() {
+            self.handle_class(&mut layout_style, &COLORS, class);
+        }
+
+        for class in class.split_whitespace() {
             if state.hovered {
                 if let Some(class) = class.strip_prefix("hover:") {
-                    self.handle_class(&mut style, &COLORS, class);
+                    self.handle_class(&mut layout_style, &COLORS, class);
                 }
             }
             if state.focused {
                 if let Some(class) = class.strip_prefix("focus:") {
-                    self.handle_class(&mut style, &COLORS, class);
+                    self.handle_class(&mut layout_style, &COLORS, class);
                 }
             }
         }
 
-        if let Some(node) = self.node {
-            if &style != taffy.style(node).unwrap() {
-                taffy.set_style(node, style).unwrap();
-            }
-        } else {
-            self.node = Some(taffy.new_leaf(style).unwrap());
-        }
-
-        self
+        layout_style
     }
 
-    #[tracing::instrument(skip_all, name = "Tailwind::set_texture")]
-    pub fn set_texture(&mut self, taffy: &mut Taffy, src: &str, tex_manager: &mut TextureManager) {
-        use usvg::TreeParsing;
-
-        let mut path = std::path::PathBuf::new();
-        path.push("assets");
-        path.push(src);
-
-        if self.texture_id.is_some() {
-            self.set_aspect_ratio_layout(taffy, tex_manager);
+    pub fn set_texture(
+        &mut self,
+        src: &str,
+    ) {
+        // check texture:// prefix, meaning it's a texture id
+        if let Some(src) = src.strip_prefix("texture://") {
+            let Ok(id) = src.parse::<u64>() else {
+                log::error!("Failed to parse texture id: {}", src);
+                return;
+            };
+            self.texture_id = Some(epaint::TextureId::Managed(id));
             return;
         }
-
-        let extension = path.extension().unwrap().to_str().unwrap();
-
-        let id = if extension.contains("svg") {
-            let opt = usvg::Options::default();
-            let svg_bytes = std::fs::read(&path).unwrap();
-            let rtree = usvg::Tree::from_data(&svg_bytes, &opt)
-                .map_err(|err| err.to_string())
-                .expect("Failed to parse SVG file");
-
-            let rtree = resvg::Tree::from_usvg(&rtree);
-            let pixmap_size = rtree.size.to_int_size();
-            let mut pixmap =
-                resvg::tiny_skia::Pixmap::new(pixmap_size.width(), pixmap_size.height()).unwrap();
-            rtree.render(resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-
-            tex_manager.alloc(
-                path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(
-                    [pixmap_size.width() as usize, pixmap_size.height() as usize],
-                    pixmap.data(),
-                ))),
-                TextureOptions::LINEAR,
-            )
-        } else {
-            let Ok(reader) = image::io::Reader::open(&path) else {
-                log::error!("Failed to open image: {}", path.display());
-                return;
-            };
-            let Ok(img) = reader.decode() else {
-                log::error!("Failed to decode image: {}", path.display());
-                return;
-            };
-            let size = [img.width() as usize, img.height() as usize];
-            let rgba = img.to_rgba8();
-
-            tex_manager.alloc(
-                path.to_string_lossy().to_string(),
-                epaint::ImageData::Color(Arc::new(ColorImage::from_rgba_unmultiplied(size, &rgba))),
-                TextureOptions::LINEAR,
-            )
-        };
-
-        self.texture_id = Some(id);
-        self.set_aspect_ratio_layout(taffy, tex_manager);
     }
 
-    #[tracing::instrument(skip_all, name = "Tailwind::set_aspect_ratio_layout")]
-    fn set_aspect_ratio_layout(&self, taffy: &mut Taffy, tex_manager: &TextureManager) {
-        let meta = tex_manager.meta(self.texture_id.unwrap()).unwrap();
-        let image_size = [meta.size[0] as f32, meta.size[1] as f32];
-        let aspect_ratio = image_size[0] / image_size[1];
-        let mut style = taffy
-            .style(
-                self.node
-                    .expect("set_image_default_sizing called before set_styling was called"),
-            )
-            .unwrap()
-            .clone();
-
-        if style.size.width == Dimension::AUTO && style.size.height == Dimension::AUTO {
-            style.size.width = Dimension::Length(image_size[0]);
-            style.size.height = Dimension::Length(image_size[1]);
-        }
-        // if we're scaling the height based on the new width
-        else if style.size.width != Dimension::AUTO && style.size.height == Dimension::AUTO {
-            let new_width = match style.size.width {
-                Dimension::Length(val) => val,
-                _ => image_size[0], // use old width if it's not a length
-            };
-            style.size.height = Dimension::Length(new_width / aspect_ratio);
-        }
-        // if we're scaling the width based on the new height
-        else if style.size.height != Dimension::AUTO && style.size.width == Dimension::AUTO {
-            let new_height = match style.size.height {
-                Dimension::Length(val) => val,
-                _ => image_size[1], // use old height if it's not a length
-            };
-            style.size.width = Dimension::Length(new_height * aspect_ratio);
-        }
-
-        if &style != taffy.style(self.node.unwrap()).unwrap() {
-            taffy.set_style(self.node.unwrap(), style).unwrap();
-        }
-    }
-
-    pub fn get_font_galley(
-        &self,
-        text: &str,
-        taffy: &Taffy,
-        fonts: &Fonts,
-        parent: &Tailwind,
-    ) -> Arc<Galley> {
-        let max_width = taffy.layout(self.node.unwrap()).unwrap().size.width;
-
-        fonts.layout(
-            text.to_string(),
-            parent.text.font.clone(),
-            parent.text.color,
-            max_width,
-        )
-    }
-
-    #[tracing::instrument(skip_all, name = "Tailwind::set_text_styling")]
-    pub fn set_text_styling(
-        &mut self,
-        text: &str,
-        taffy: &mut Taffy,
-        fonts: &Fonts,
-        parent: &Tailwind,
-    ) {
-        let galley = self.get_font_galley(text, taffy, fonts, parent);
-        let size = galley.size();
-        let style = Style {
-            size: Size {
-                width: Dimension::Length(size.x),
-                height: Dimension::Length(size.y),
-            },
-
-            ..Default::default()
-        };
-
-        if &style != taffy.style(self.node.unwrap()).unwrap() {
-            taffy.set_style(self.node.unwrap(), style).unwrap();
-        }
-    }
-
-    #[tracing::instrument(skip_all, name = "Tailwind::handle_class")]
-    #[inline]
     fn handle_class(&mut self, style: &mut Style, colors: &Colors, class: &str) {
         if class == "flex-col" {
             style.display = Display::Flex;
@@ -285,6 +163,11 @@ impl Tailwind {
                 "wrap" => style.flex_wrap = FlexWrap::Wrap,
                 "wrap-reverse" => style.flex_wrap = FlexWrap::WrapReverse,
                 "nowrap" => style.flex_wrap = FlexWrap::NoWrap,
+                "none" => {
+                    style.flex_grow = 0.0;
+                    style.flex_shrink = 0.0;
+                    style.flex_basis = Dimension::AUTO;
+                }
                 _ => {}
             }
         }
@@ -301,6 +184,10 @@ impl Tailwind {
             style.flex_grow = 0.0;
         }
 
+        if let Some(class) = class.strip_prefix("basis-") {
+            style.flex_basis = handle_size(class);
+        }
+
         if let Some(class) = class.strip_prefix("w-") {
             style.size.width = handle_size(class);
         }
@@ -315,6 +202,14 @@ impl Tailwind {
 
         if let Some(class) = class.strip_prefix("min-h-") {
             style.min_size.height = handle_size(class);
+        }
+
+        if let Some(class) = class.strip_prefix("max-w-") {
+            style.max_size.width = handle_size(class);
+        }
+
+        if let Some(class) = class.strip_prefix("max-h-") {
+            style.max_size.height = handle_size(class);
         }
 
         if let Some(class) = class.strip_prefix("bg-") {
@@ -469,6 +364,17 @@ impl Tailwind {
                 "baseline" => style.align_items = Some(AlignItems::Baseline),
                 "stretch" => style.align_items = Some(AlignItems::Stretch),
                 _ => debug!("Unknown align items {class}"),
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("align-self-") {
+            match class {
+                "start" => style.align_self = Some(AlignItems::FlexStart),
+                "end" => style.align_self = Some(AlignItems::FlexEnd),
+                "center" => style.align_self = Some(AlignItems::Center),
+                "baseline" => style.align_self = Some(AlignItems::Baseline),
+                "stretch" => style.align_self = Some(AlignItems::Stretch),
+                _ => debug!("Unknown align self {class}"),
             }
         }
 

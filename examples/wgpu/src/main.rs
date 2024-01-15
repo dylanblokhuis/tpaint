@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(unsafe_code)]
 
+use simple_logger::SimpleLogger;
 use tpaint::DomEventLoop;
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
@@ -16,7 +17,19 @@ fn main() {
     #[cfg(feature = "hot-reload")]
     dioxus_hot_reload::hot_reload_init!();
 
-    let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
+    #[cfg(feature = "tracy")]
+    let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new().build();
+    #[cfg(feature = "tracy")]
+    use tracing_subscriber::layer::SubscriberExt;
+    #[cfg(feature = "tracy")]
+    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(chrome_layer))
+        .expect("set up the subscriber");
+
+    SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
+    
+    let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event()
+        .build()
+        .unwrap();
     let window = winit::window::WindowBuilder::new()
         .with_decorations(true)
         .with_resizable(true)
@@ -67,7 +80,6 @@ fn main() {
 
     let mut renderer = Renderer::new(&device, swapchain_format, None, 1);
 
-    // let mut ctx = RenderContext::new(&device, config.format, None, 1, size);
     let mut app = DomEventLoop::spawn(
         app::app,
         window.inner_size(),
@@ -77,103 +89,101 @@ fn main() {
         (),
     );
 
-    event_loop.run(move |event, _, control_flow| {
-        // Have the closure take ownership of the resources.
-        // `event_loop.run` never returns, therefore we must do this to ensure
-        // the resources are properly cleaned up.
-        let _ = (&instance, &adapter);
+    event_loop
+        .run(move |event, target| {
+            // Have the closure take ownership of the resources.
+            // `event_loop.run` never returns, therefore we must do this to ensure
+            // the resources are properly cleaned up.
+            let _ = (&instance, &adapter);
 
-        let mut redraw = || {
-            *control_flow = winit::event_loop::ControlFlow::Wait;
-            let frame = surface
-                .get_current_texture()
-                .expect("Failed to acquire next swap chain texture");
-            let view = frame
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            let mut redraw = || {
+                // target.control_flow() = winit::event_loop::ControlFlow::Poll;
+                // *control_flow = winit::event_loop::ControlFlow::Wait;
+                target.set_control_flow(winit::event_loop::ControlFlow::Wait);
+                let frame = surface
+                    .get_current_texture()
+                    .expect("Failed to acquire next swap chain texture");
+                let view = frame
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor::default());
+                let mut encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-            let (primitives, delta, screen_descriptor) = app.get_paint_info();
+                let (primitives, delta, screen_descriptor) = app.get_paint_info();
 
-            for (id, texture) in delta.set {
-                renderer.update_texture(&device, &queue, id, &texture);
-            }
-
-            for id in delta.free {
-                renderer.free_texture(&id);
-            }
-
-            let screen = &ScreenDescriptor {
-                size_in_pixels: screen_descriptor.size.into(),
-                pixels_per_point: screen_descriptor.pixels_per_point,
-            };
-            renderer.update_buffers(&device, &queue, &mut encoder, &primitives, screen);
-
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                });
-
-                renderer.render(&mut rpass, &primitives, screen)
-            }
-
-            queue.submit(Some(encoder.finish()));
-            frame.present();
-        };
-
-        match event {
-            winit::event::Event::RedrawEventsCleared if cfg!(target_os = "windows") => redraw(),
-            winit::event::Event::RedrawRequested(_) if !cfg!(target_os = "windows") => redraw(),
-
-            winit::event::Event::WindowEvent {
-                event: ref window_event,
-                ..
-            } => {
-                if matches!(
-                    window_event,
-                    WindowEvent::CloseRequested | WindowEvent::Destroyed
-                ) {
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
+                for (id, texture) in delta.set {
+                    renderer.update_texture(&device, &queue, id, &texture);
                 }
 
-                if let winit::event::WindowEvent::Resized(physical_size) = &window_event {
-                    config.width = physical_size.width;
-                    config.height = physical_size.height;
-                    surface.configure(&device, &config);
-                } else if let winit::event::WindowEvent::ScaleFactorChanged {
-                    new_inner_size, ..
-                } = &window_event
+                for id in delta.free {
+                    renderer.free_texture(&id);
+                }
+
+                let screen = &ScreenDescriptor {
+                    size_in_pixels: screen_descriptor.size.into(),
+                    pixels_per_point: screen_descriptor.pixels_per_point,
+                };
+                renderer.update_buffers(&device, &queue, &mut encoder, &primitives, screen);
+
                 {
-                    config.width = new_inner_size.width;
-                    config.height = new_inner_size.height;
-                    surface.configure(&device, &config);
+                    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        occlusion_query_set: None,
+                        timestamp_writes: None,
+                    });
+
+                    renderer.render(&mut rpass, &primitives, screen)
                 }
 
-                let repaint = app.on_window_event(window_event);
-                if repaint {
+                queue.submit(Some(encoder.finish()));
+                frame.present();
+            };
+
+            match event {
+                // winit::event::Event::RedrawRequested if !cfg!(target_os = "windows") => redraw(),
+                winit::event::Event::WindowEvent {
+                    event: ref window_event,
+                    ..
+                } => {
+                    match window_event {
+                        WindowEvent::Resized(size) => {
+                            config.width = size.width;
+                            config.height = size.height;
+                            surface.configure(&device, &config);
+                            window.request_redraw();
+                        }
+
+                        WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                            target.exit();
+                        }
+
+                        WindowEvent::RedrawRequested => {
+                            redraw();
+                        }
+
+                        _ => {}
+                    }
+
+                    let repaint = app.on_window_event(window_event);
+                    if repaint {
+                        window.request_redraw();
+                    }
+                }
+
+                winit::event::Event::UserEvent(_) => {
                     window.request_redraw();
                 }
+                _ => {}
             }
-
-            winit::event::Event::NewEvents(winit::event::StartCause::ResumeTimeReached {
-                ..
-            }) => {
-                window.request_redraw();
-            }
-            winit::event::Event::UserEvent(_) => {
-                window.request_redraw();
-            }
-            _ => {}
-        }
-    });
+        })
+        .unwrap();
 }

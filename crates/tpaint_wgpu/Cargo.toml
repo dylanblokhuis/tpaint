@@ -9,6 +9,6 @@ edition = "2021"
 bytemuck = "1.13"
 tpaint = { path = "../tpaint" }
 example_ui = { path = "../../examples/example_ui" }
-wgpu = "0.17"
+wgpu = "0.18"
 log = "0.4"
 type-map = "0.5"

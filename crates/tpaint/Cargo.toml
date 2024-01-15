@@ -6,29 +6,35 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.4.0", default-features = false, features = ["macro", "hooks"] }
-dioxus-hot-reload = { version = "0.4.0", features = ["file_watcher"], optional = true }
-epaint = { git = "https://github.com/emilk/egui", features = ["bytemuck", "default", "log"] }
-lazy_static = "1.4.0"
-log = "0.4.20"
-rustc-hash = "1.1.0"
+dioxus = { version = "0.4.3", default-features = false, features = [
+    "macro",
+    "hooks",
+] }
+dioxus-hot-reload = { version = "0.4.3", features = [
+    "file_watcher",
+], optional = true }
+epaint = { git = "https://github.com/emilk/egui", features = [
+    "bytemuck",
+    "serde",
+    "default",
+    "log",
+] }
+lazy_static = "1"
+log = "0.4"
+rustc-hash = "1"
 simple_logger = "4.2.0"
-slotmap = "1.0.6"
-smallvec = "1.11.0"
-taffy = { git = "https://github.com/dioxuslabs/taffy" }
-tokio = { version = "1.32.0", features = ["time", "rt", "sync", "macros"] }
-tween = "2.0.1"
-usvg = { version = "0.35.0", optional = true }
-resvg = { version = "0.35.0", optional = true }
+taffy = { git = "https://github.com/dioxuslabs/taffy.git" }
+tokio = { version = "1", features = ["time", "rt", "sync", "macros"] }
+resvg = { version = "0.37", optional = true }
 image = { version = "0.24.7", optional = true }
-uuid = { version = "1.4.1", features = ["v4"] }
-winit = "0.28"
-copypasta = "0.8.2"
+winit = { version = "0.29", features = ["rwh_05"] }
+copypasta = "0.10"
 tracing = "0.1"
+reqwest = { version = "0.11", optional = true }
 
 [features]
 default = ["images"]
-images = ["dep:image", "dep:resvg", "dep:usvg"]
+images = ["dep:image", "dep:resvg", "dep:reqwest"]
 hot-reload = ["dep:dioxus-hot-reload"]
 
 [dev-dependencies]

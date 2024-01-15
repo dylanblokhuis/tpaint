@@ -3,8 +3,11 @@
 #![allow(non_camel_case_types)]
 
 pub mod components;
-pub mod hooks;
-mod vdom;
+mod dom;
+mod event_loop;
+mod events;
+mod renderer;
+mod tailwind;
 
 #[doc(hidden)]
 pub trait EventReturn<P>: Sized {
@@ -50,7 +53,7 @@ macro_rules! impl_event {
     };
 }
 
-pub use vdom::DomEventLoop;
+pub use event_loop::DomEventLoop;
 
 pub mod prelude {
 
@@ -67,59 +70,62 @@ pub mod prelude {
             pub const TAG_NAME: &'static str = "view";
             pub const NAME_SPACE: Option<&'static str> = None;
             pub const class: AttributeDescription = ("class", None, false);
-            pub const cursor: AttributeDescription = ("cursor", None, false);
-            pub const cursor_visible: AttributeDescription = ("cursor_visible", None, false);
-            pub const selection_start: AttributeDescription = ("selection_start", None, false);
-        }
-
-        #[cfg(feature = "images")]
-        pub struct image;
-
-        #[cfg(feature = "images")]
-        impl image {
-            pub const TAG_NAME: &'static str = "image";
-            pub const NAME_SPACE: Option<&'static str> = None;
-            pub const class: AttributeDescription = ("class", None, false);
+            
+            /// Prefix texture ids with ``texture://``
             pub const src: AttributeDescription = ("src", None, false);
+
+            pub const tabindex: AttributeDescription = ("tabindex", None, false);
+            pub const text_cursor: AttributeDescription = ("text_cursor", None, false);
+            pub const text_cursor_visible: AttributeDescription =
+                ("text_cursor_visible", None, false);
+            pub const text_selection_start: AttributeDescription =
+                ("text_selection_start", None, false);
+            pub const global_selection_mode: AttributeDescription =
+                ("global_selection_mode", None, false);
         }
 
         pub mod events {
             impl_event! [
-                crate::vdom::events::PointerInput;
+                crate::events::ClickEvent;
                 onclick
                 onmouseup
                 onmousedown
             ];
 
             impl_event! [
-                crate::vdom::events::PointerMove;
+                crate::events::MouseMoveEvent;
                 onmousemove
             ];
 
             impl_event! [
-                crate::vdom::events::Text;
+                crate::events::InputEvent;
                 oninput
             ];
 
             impl_event! [
-                crate::vdom::events::KeyInput;
+                crate::events::KeyInput;
                 onkeydown
                 onkeyup
             ];
 
             impl_event! [
-                crate::vdom::events::Focus;
+                crate::events::FocusEvent;
                 onfocus
             ];
 
             impl_event! [
-                crate::vdom::events::Blur;
+                crate::events::BlurEvent;
                 onblur
             ];
 
             impl_event! [
-                crate::vdom::events::Drag;
+                crate::events::DragEvent;
                 ondrag
+            ];
+
+            impl_event![
+                crate::events::LayoutEvent;
+                onlayout
             ];
         }
     }

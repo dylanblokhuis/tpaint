@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::prelude::*;
 use copypasta::{ClipboardContext, ClipboardProvider};
 use dioxus::prelude::*;
+use winit::event::VirtualKeyCode;
 
 #[derive(Props)]
 pub struct InputProps<'a> {
@@ -70,8 +71,8 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         }
     };
 
-    let handle_keydown = move |event: Event<crate::vdom::events::KeyInput>| match event.key.name() {
-        "Backspace" => {
+    let handle_keydown = move |event: Event<crate::events::KeyInput>| match event.key {
+        VirtualKeyCode::Back => {
             if *cursor_pos.get() > 0 && is_all_selected {
                 text.modify(|text| {
                     let mut text = text.clone();
@@ -103,7 +104,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
                 cursor_pos.set(*selection_start.get());
             }
         }
-        "Delete" => {
+        VirtualKeyCode::Delete => {
             if *cursor_pos.get() < text.len() {
                 text.modify(|text| {
                     let mut text = text.clone();
@@ -113,49 +114,49 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
                 call_on_change();
             }
         }
-        "Left" => {
+        VirtualKeyCode::Left => {
             if *cursor_pos.get() > 0 {
-                if event.modifiers.shift && is_all_selected {
+                if event.state.modifiers().shift() && is_all_selected {
                     selection_start.set(*cursor_pos.get());
                 }
 
                 let new_cursor_pos = *cursor_pos.get() - 1;
                 cursor_pos.set(new_cursor_pos);
-                if !event.modifiers.shift {
+                if !event.state.modifiers().shift() {
                     selection_start.set(new_cursor_pos);
                 }
             }
         }
-        "Right" => {
+        VirtualKeyCode::Right => {
             if *cursor_pos.get() < text.len() {
-                if event.modifiers.shift && is_all_selected {
+                if event.state.modifiers().shift() && is_all_selected {
                     selection_start.set(*cursor_pos.get());
                 }
 
                 let new_cursor_pos = *cursor_pos.get() + 1;
                 cursor_pos.set(new_cursor_pos);
-                if !event.modifiers.shift {
+                if !event.state.modifiers().shift() {
                     selection_start.set(new_cursor_pos);
                 }
             }
         }
 
-        "Home" => {
+        VirtualKeyCode::Home => {
             cursor_pos.set(0);
-            if !event.modifiers.shift {
+            if !event.state.modifiers().shift() {
                 selection_start.set(0);
             }
         }
 
-        "End" => {
+        VirtualKeyCode::End => {
             cursor_pos.set(text.len());
-            if !event.modifiers.shift {
+            if !event.state.modifiers().shift() {
                 selection_start.set(text.len());
             }
         }
 
-        "X" => {
-            if event.modifiers.command && !is_all_selected {
+        VirtualKeyCode::X => {
+            if event.state.command() && !is_all_selected {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let (drained_text, start, _) = get_text_range();
                 text.modify(|text| {
@@ -170,23 +171,23 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             }
         }
 
-        "A" => {
-            if event.modifiers.command {
+        VirtualKeyCode::A => {
+            if event.state.command() {
                 cursor_pos.set(text.len());
                 selection_start.set(0);
             }
         }
 
-        "C" => {
-            if event.modifiers.command && !is_all_selected {
+        VirtualKeyCode::C => {
+            if event.state.command() && !is_all_selected {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let (drained_text, _, _) = get_text_range();
                 ctx.set_contents(drained_text).unwrap();
             }
         }
 
-        "V" => {
-            if event.modifiers.command {
+        VirtualKeyCode::V => {
+            if event.state.command() {
                 let mut ctx = ClipboardContext::new().unwrap();
                 let clipboard_text = ctx.get_contents().unwrap();
                 text.modify(|text| {
@@ -211,12 +212,12 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         _ => {}
     };
 
-    let handle_input = move |event: Event<crate::vdom::events::Text>| {
-        if event.char.is_control() {
+    let handle_input = move |event: Event<crate::events::InputEvent>| {
+        if event.text.is_control() {
             return;
         }
 
-        if event.modifiers.command {
+        if event.state.command() {
             return;
         }
 
@@ -225,7 +226,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             text.modify(|text| {
                 let mut text = text.clone();
                 text.replace_range(start..start + drained_text.len(), "");
-                text.insert(start, event.char);
+                text.insert(start, event.text);
 
                 text
             });
@@ -234,7 +235,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             selection_start.set(start + 1);
         } else {
             let mut chars = text.chars().collect::<Vec<_>>();
-            chars.insert(*cursor_pos.get(), event.char);
+            chars.insert(*cursor_pos.get(), event.text);
             text.set(chars.iter().collect());
             call_on_change();
             cursor_pos.set(cursor_pos + 1);
@@ -255,32 +256,33 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         (start, end)
     };
 
-    let handle_click = move |event: Event<crate::vdom::events::PointerInput>| {
+    let handle_click = move |event: Event<crate::events::ClickEvent>| {
         let now = std::time::Instant::now();
         let duration_since_last_click = now.duration_since(*last_click_time.get());
+        let event_cursor_position = event.state.focused.unwrap().text_cursor.unwrap();
 
         if duration_since_last_click.as_millis() < 500
-            && *last_click_position.get() == event.cursor_position
+            && *last_click_position.get() == event_cursor_position
         {
-            let (start, end) = find_word_boundaries(event.cursor_position, text.get());
+            let (start, end) = find_word_boundaries(event_cursor_position, text.get());
             cursor_pos.set(end);
             selection_start.set(start);
         } else {
             // This is a single click
-            if event.modifiers.shift {
-                cursor_pos.set(event.cursor_position);
+            if event.state.keyboard_state.modifiers.shift() {
+                cursor_pos.set(event_cursor_position);
             } else {
-                cursor_pos.set(event.cursor_position);
-                selection_start.set(event.cursor_position);
+                cursor_pos.set(event_cursor_position);
+                selection_start.set(event_cursor_position);
             }
         }
 
         last_click_time.set(now);
-        last_click_position.set(event.cursor_position);
+        last_click_position.set(event_cursor_position);
     };
 
-    let handle_drag = move |event: Event<crate::vdom::events::Drag>| {
-        cursor_pos.set(event.cursor_position);
+    let handle_drag = move |event: Event<crate::events::DragEvent>| {
+        cursor_pos.set(event.state.focused.unwrap().text_cursor.unwrap());
     };
 
     render! {
@@ -300,9 +302,10 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         },
         onclick: handle_click,
         ondrag: handle_drag,
-        cursor: *cursor_pos.get() as i64,
-        cursor_visible: *cursor_visible.get() && *is_focused.get(),
-        selection_start: *selection_start.get() as i64,
+        text_cursor: *cursor_pos.get() as i64,
+        text_cursor_visible: *cursor_visible.get() && *is_focused.get(),
+        text_selection_start: *selection_start.get() as i64,
+        global_selection_mode: "off",
 
         "{text}"
       }
