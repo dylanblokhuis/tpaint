@@ -29,7 +29,7 @@ pub fn app(cx: Scope) -> Element {
 
 
             view {
-                class: "w-200 h-200 roudn bg-black p-10",
+                class: "w-200 h-200 bg-black p-10",
 
                 Image {
                     src: "https://placehold.co/600x400/png".to_string(),
