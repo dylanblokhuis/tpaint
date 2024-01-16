@@ -290,6 +290,8 @@ impl Dom {
             }
 
             TemplateNode::DynamicText { .. } => {
+                let mut attrs = FxHashMap::default();
+                attrs.insert(self.get_tag_or_attr_key("class"), "".into());
                 let node_id = self
                     .tree
                     .new_leaf_with_context(
@@ -297,7 +299,7 @@ impl Dom {
                         NodeContext {
                             parent_id,
                             tag: "text".into(),
-                            attrs: FxHashMap::default(),
+                            attrs,
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
                             computed: Default::default(),
