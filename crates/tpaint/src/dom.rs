@@ -252,6 +252,8 @@ impl Dom {
             TemplateNode::Text { text } => {
                 let mut attrs = FxHashMap::default();
                 attrs.insert(self.get_tag_or_attr_key("value"), text.into());
+                attrs.insert(self.get_tag_or_attr_key("class"), "".into());
+
                 let mut node = NodeContext {
                     parent_id,
                     tag: "text".into(),
@@ -400,6 +402,7 @@ impl Dom {
                 dioxus::core::Mutation::CreateTextNode { value, id } => {
                     let mut attrs = FxHashMap::default();
                     attrs.insert(self.get_tag_or_attr_key("value"), value.into());
+                    attrs.insert(self.get_tag_or_attr_key("class"), "".into());
 
                     let node = NodeContext {
                         parent_id: None,
