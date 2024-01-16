@@ -29,6 +29,12 @@ pub fn run_paint_info(app: &mut DomEventLoop) {
     let _ = app.renderer.get_paint_info(&mut dom);
 }
 
+pub fn apply_mutations(event_loop: &mut DomEventLoop) {
+    let mut dom = event_loop.dom.lock().unwrap();
+    let mut vdom = VirtualDom::new(app);
+    dom.apply_mutations(vdom.rebuild());
+}
+
 pub fn criterion_benchmark(c: &mut Criterion) {
     let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
     let window = WindowBuilder::new()
@@ -36,7 +42,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .build(&event_loop)
         .unwrap();
 
-    let mut app = DomEventLoop::spawn(
+    let mut event_loop = DomEventLoop::spawn(
         app,
         window.inner_size(),
         window.scale_factor() as f32,
@@ -46,11 +52,15 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     );
 
     c.bench_function("calculate_layout", |b| {
-        b.iter(|| run_calculate_layout(black_box(&mut app)))
+        b.iter(|| run_calculate_layout(black_box(&mut event_loop)))
     });
 
     c.bench_function("get_paint_info", |b| {
-        b.iter(|| run_paint_info(black_box(&mut app)))
+        b.iter(|| run_paint_info(black_box(&mut event_loop)))
+    });
+
+    c.bench_function("apply_mutations", |b| {
+        b.iter(|| apply_mutations(black_box(&mut event_loop)))
     });
 }
 

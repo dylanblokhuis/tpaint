@@ -251,7 +251,6 @@ impl Dom {
             }
             TemplateNode::Text { text } => {
                 let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
                 attrs.insert(self.get_tag_or_attr_key("value"), text.into());
                 let mut node = NodeContext {
                     parent_id,
@@ -289,9 +288,6 @@ impl Dom {
             }
 
             TemplateNode::DynamicText { .. } => {
-                let mut attrs = FxHashMap::default();
-                attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
-
                 let node_id = self
                     .tree
                     .new_leaf_with_context(
@@ -299,7 +295,7 @@ impl Dom {
                         NodeContext {
                             parent_id,
                             tag: "text".into(),
-                            attrs,
+                            attrs: FxHashMap::default(),
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
                             computed: Default::default(),
@@ -404,7 +400,6 @@ impl Dom {
                 dioxus::core::Mutation::CreateTextNode { value, id } => {
                     let mut attrs = FxHashMap::default();
                     attrs.insert(self.get_tag_or_attr_key("value"), value.into());
-                    attrs.insert(self.get_tag_or_attr_key("class"), "w-full".into());
 
                     let node = NodeContext {
                         parent_id: None,
