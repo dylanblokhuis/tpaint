@@ -4,7 +4,7 @@ use dioxus::core::ElementId;
 
 use winit::{
     event::{ElementState, Modifiers, MouseButton},
-    keyboard::{PhysicalKey, SmolStr},
+    keyboard::{Key, PhysicalKey, SmolStr},
 };
 
 use crate::dom::DomState;
@@ -39,10 +39,6 @@ impl Event {
 impl DomState {
     pub fn modifiers(&self) -> Modifiers {
         self.keyboard_state.modifiers
-    }
-
-    pub fn text_cursor(&self) -> usize {
-        self.focused.unwrap().text_cursor.unwrap()
     }
 
     pub fn command(&self) -> bool {
@@ -83,14 +79,18 @@ pub struct DragEvent {
 #[derive(Clone, Debug)]
 pub struct InputEvent {
     pub state: DomState,
-    pub text: SmolStr,
+    pub logical_key: Key,
+    pub physical_key: PhysicalKey,
+    pub text: Option<SmolStr>,
 }
 
 #[derive(Clone, Debug)]
 pub struct KeyInput {
     pub state: DomState,
     pub element_state: ElementState,
+    pub logical_key: Key,
     pub physical_key: PhysicalKey,
+    pub text: Option<SmolStr>,
 }
 
 #[derive(Clone, Debug)]

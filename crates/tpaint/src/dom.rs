@@ -1,16 +1,18 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
     prelude::{TemplateAttribute, TemplateNode},
 };
-use epaint::{Pos2, Vec2};
+use epaint::{text::cursor::Cursor, Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
 use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, KeyEvent, Modifiers, MouseScrollDelta},
+    keyboard::SmolStr,
+    platform::modifier_supplement::KeyEventExtModifierSupplement,
 };
 
 use crate::{
@@ -64,6 +66,8 @@ pub struct SelectedNode {
     pub parent_id: Option<NodeId>,
     /// The position of the node when it was selected
     pub computed_rect_when_selected: epaint::Rect,
+    pub start_cursor: Cursor,
+    pub end_cursor: Cursor,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -435,8 +439,8 @@ impl Dom {
                     let key = self.get_tag_or_attr_key("value");
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
                     node.attrs.insert(key, value.into());
+                    self.tree.mark_dirty(node_id).unwrap();
                 }
-
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
                     let new_nodes = self.stack.split_off(self.stack.len() - m);
                     let old_node_id = self.element_id_mapping[&id];
@@ -735,14 +739,38 @@ impl Dom {
                 self.state.selection.clear();
                 self.traverse_tree(self.get_root_id(), &mut |dom, id| {
                     let node = dom.tree.get_node_context_mut(id).unwrap();
+                    if let Some(selection_mode) = node.attrs.get("global_selection_mode") {
+                        if *selection_mode == "off".into() {
+                            return false;
+                        }
+                    }
                     if node.tag != "text".into() {
                         return true;
                     }
                     if node.computed.rect.intersects(selection_rect) {
+                        let start_cursor = node.computed.galley.as_ref().unwrap().cursor_from_pos(
+                            dom.state.cursor_state.current_position.to_vec2()
+                                - node.computed.rect.min.to_vec2(),
+                        );
+
+                        let end_cursor = node.computed.galley.as_ref().unwrap().cursor_from_pos(
+                            dom.state
+                                .cursor_state
+                                .drag_start_position
+                                .unwrap()
+                                .to_vec2()
+                                - node.computed.rect.min.to_vec2(),
+                        );
+
+                        // println!("start_cursor: {:?}", start_cursor);
+                        // println!("end_cursor: {:?}", end_cursor);
+
                         dom.state.selection.push(SelectedNode {
                             node_id: id,
                             parent_id: node.parent_id,
                             computed_rect_when_selected: node.computed.rect,
+                            start_cursor,
+                            end_cursor,
                         });
                     }
 
@@ -831,15 +859,43 @@ impl Dom {
         }
 
         // find first element with tabindex
+        let mut focused_text_child = None;
+
+        let current_focus_id = self.state.focused.map(|f| f.node_id);
+
         self.state.focused = self.state.hovered.clone().iter().rev().find_map(|id| {
             let Some(node) = self.tree.get_node_context(*id) else {
                 return None;
             };
 
+            if node.tag == "text".into() {
+                focused_text_child = Some(*id);
+            }
+
             if node.attrs.get("tabindex").is_some() || node.listeners.contains("click") {
+                let maybe_cursor = if let Some(focused_text_child) = focused_text_child {
+                    let galley = self
+                        .tree
+                        .get_node_context(focused_text_child)
+                        .unwrap()
+                        .computed
+                        .galley
+                        .as_ref()
+                        .unwrap();
+
+                    let cursor = galley.cursor_from_pos(
+                        self.state.cursor_state.current_position.to_vec2()
+                            - node.computed.rect.min.to_vec2(),
+                    );
+
+                    Some(cursor.pcursor.offset)
+                } else {
+                    None
+                };
+
                 let node = FocusedNode {
                     node_id: *id,
-                    text_cursor: None,
+                    text_cursor: maybe_cursor,
                 };
 
                 self.send_event_to_element(
@@ -856,6 +912,20 @@ impl Dom {
                 None
             }
         });
+
+        // send blur if the focused node is not the same as the previously focused node
+        if let Some(current_focus_id) = current_focus_id {
+            if self.state.focused.map(|f| f.node_id) != Some(current_focus_id) {
+                self.send_event_to_element(
+                    current_focus_id,
+                    "blur",
+                    Arc::new(events::Event::Blur(events::BlurEvent {
+                        state: self.state.clone(),
+                    })),
+                    true,
+                );
+            }
+        }
 
         if let Some(focused) = self.state.focused {
             let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
@@ -966,17 +1036,17 @@ impl Dom {
         };
 
         if input.state.is_pressed() {
-            if let Some(text) = &input.text {
-                self.send_event_to_element(
-                    focused.node_id,
-                    "input",
-                    Arc::new(events::Event::Input(events::InputEvent {
-                        state: self.state.clone(),
-                        text: text.clone(),
-                    })),
-                    true,
-                );
-            }
+            self.send_event_to_element(
+                focused.node_id,
+                "input",
+                Arc::new(events::Event::Input(events::InputEvent {
+                    state: self.state.clone(),
+                    logical_key: input.logical_key.clone(),
+                    physical_key: input.physical_key,
+                    text: input.text.clone(),
+                })),
+                true,
+            );
         }
 
         self.send_event_to_element(
@@ -987,8 +1057,10 @@ impl Dom {
             },
             Arc::new(events::Event::Key(events::KeyInput {
                 state: self.state.clone(),
-                physical_key: input.physical_key,
                 element_state: input.state,
+                logical_key: input.logical_key.clone(),
+                physical_key: input.physical_key,
+                text: input.text.clone(),
             })),
             true,
         );

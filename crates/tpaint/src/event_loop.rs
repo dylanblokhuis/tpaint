@@ -55,7 +55,6 @@ impl DomEventLoop {
                     client: reqwest::Client::new(),
                 });
                 let mutations = vdom.rebuild();
-                // dbg!(&mutations);
                 dom.lock().unwrap().apply_mutations(mutations);
                 event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
 

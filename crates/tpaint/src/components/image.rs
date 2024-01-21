@@ -12,6 +12,7 @@ pub struct ImageProps<'a> {
     pub src: String,
 }
 
+/// TODO: cache images in a global cache
 pub fn Image<'a>(cx: Scope<'a, ImageProps<'a>>) -> Element {
     let dom_context = use_context::<DomContext>(cx).unwrap();
     let texture_id_state = use_state::<Option<TextureId>>(cx, || None);

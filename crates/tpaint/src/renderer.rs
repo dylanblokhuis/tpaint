@@ -432,34 +432,30 @@ impl Renderer {
                                 .expect("Galley should've been set in the calculate_layout step"),
                             Color32::BLACK,
                         );
+                        let parent = dom.tree.get_node_context(parent_id.unwrap()).unwrap();
 
-                        // if let Some(cursor) = parent.attrs.get("cursor") {
-                        //     let epaint::Shape::Text(text_shape) = &shape.shape else {
-                        //         unreachable!();
-                        //     };
-                        //     let Some(selection_start) =
-                        //         parent.attrs.get("selection_start").or(Some(cursor))
-                        //     else {
-                        //         unreachable!();
-                        //     };
+                        if let Some(cursor) = parent.attrs.get("text_cursor") {
+                            let epaint::Shape::Text(text_shape) = &shape else {
+                                unreachable!();
+                            };
 
-                        //     if let Ok(cursor) = str::parse::<usize>(cursor) {
-                        //         if parent.attrs.get("cursor_visible").unwrap_or(&String::new())
-                        //             == "true"
-                        //         {
-                        //             shapes.push(self.get_cursor_shape(parent, text_shape, cursor));
-                        //         }
-
-                        //         if let Ok(selection_start) = str::parse::<usize>(selection_start) {
-                        //             shapes.extend_from_slice(&self.get_text_selection_shape(
-                        //                 text_shape,
-                        //                 cursor,
-                        //                 selection_start,
-                        //                 parent.styling.text.selection_color,
-                        //             ));
-                        //         }
-                        //     }
-                        // }
+                            if let Ok(cursor) = str::parse::<isize>(cursor) {
+                                if cursor >= 0 {
+                                    if *parent
+                                        .attrs
+                                        .get("text_cursor_visible")
+                                        .unwrap_or(&"true".into())
+                                        == "true".into()
+                                    {
+                                        self.shapes.push(self.get_cursor_shape(
+                                            parent,
+                                            text_shape,
+                                            cursor as usize,
+                                        ));
+                                    }
+                                }
+                            }
+                        }
 
                         let parent = parent_id
                             .map(|parent_id| dom.tree.get_node_context(parent_id).unwrap());
@@ -873,5 +869,45 @@ impl Renderer {
         }
 
         shapes
+    }
+
+    fn get_cursor_shape(
+        &self,
+        node: &NodeContext,
+        text_shape: &epaint::TextShape,
+        cursor_pos: usize,
+    ) -> ClippedShape {
+        let rect = text_shape
+            .galley
+            .pos_from_cursor(&epaint::text::cursor::Cursor {
+                pcursor: epaint::text::cursor::PCursor {
+                    paragraph: 0,
+                    offset: cursor_pos,
+                    prefer_next_row: false,
+                },
+                ..Default::default()
+            });
+
+        let mut rect = rect;
+
+        rect.min.x += text_shape.pos.x;
+        rect.max.x += text_shape.pos.x;
+        rect.min.y += text_shape.pos.y;
+        rect.max.y += text_shape.pos.y;
+
+        rect.min.x -= 0.5;
+        rect.max.x += 0.5;
+
+        ClippedShape {
+            clip_rect: rect,
+            shape: epaint::Shape::Rect(epaint::RectShape {
+                rect,
+                rounding: epaint::Rounding::ZERO,
+                fill: node.styling.text.color,
+                stroke: epaint::Stroke::default(),
+                fill_texture_id: TextureId::default(),
+                uv: epaint::Rect::from_min_max(WHITE_UV, WHITE_UV),
+            }),
+        }
     }
 }
