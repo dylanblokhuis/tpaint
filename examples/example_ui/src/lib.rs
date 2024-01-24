@@ -60,12 +60,12 @@ pub fn app(cx: Scope) -> Element {
 
 
 
-            // (0..10).map(|_| rsx! {
-            //     view {
-            //         class: "w-full p-20 bg-blue-900 hover:p-30",
-            //         "Lorem ipsum dolor sit amet"
-            //     }
-            // })
+            (0..10).map(|_| rsx! {
+                view {
+                    class: "w-full p-20 bg-blue-900",
+                    "Lorem ipsum dolor sit amet"
+                }
+            })
         }
     }
 }

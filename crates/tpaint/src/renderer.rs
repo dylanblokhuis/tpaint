@@ -806,32 +806,8 @@ impl Renderer {
             selected_node.computed_rect_when_selected.size().x + 1.0,
         );
 
-        // println!(
-        //     "node.computed.rect: {:?}",
-        //     selected_node.computed_rect_when_selected
-        // );
-        // println!(
-        //     " cursor_state.drag_start_position: {:?}",
-        //     cursor_state.drag_start_position
-        // );
-        // println!(
-        //     " cursor_state.drag_end_position: {:?}",
-        //     cursor_state.drag_end_position
-        // );
-
-        let selection_start = cursor_state.drag_start_position.unwrap().to_vec2()
-            - selected_node.computed_rect_when_selected.min.to_vec2();
-        let selection_end = cursor_state
-            .drag_end_position
-            .unwrap_or(cursor_state.current_position)
-            .to_vec2()
-            - selected_node.computed_rect_when_selected.min.to_vec2();
-
-        let start_cursor = galley.cursor_from_pos(selection_start);
-        let end_cursor = galley.cursor_from_pos(selection_end);
-
-        let min = start_cursor.rcursor;
-        let max = end_cursor.rcursor;
+        let min = selected_node.start_cursor.rcursor;
+        let max = selected_node.end_cursor.rcursor;
 
         let mut shapes = vec![];
         for ri in min.row..=max.row {

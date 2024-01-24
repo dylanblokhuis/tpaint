@@ -2,6 +2,8 @@ use std::{any::Any, rc::Rc, sync::Arc};
 
 use dioxus::core::ElementId;
 
+use epaint::text::cursor::Cursor;
+use taffy::NodeId;
 use winit::{
     event::{ElementState, Modifiers, MouseButton},
     keyboard::{Key, PhysicalKey, SmolStr},
@@ -19,6 +21,7 @@ pub enum Event {
     Click(ClickEvent),
     MouseMove(MouseMoveEvent),
     Layout(LayoutEvent),
+    Select(SelectEvent),
 }
 
 impl Event {
@@ -32,6 +35,7 @@ impl Event {
             Event::Click(click) => Rc::new(click),
             Event::MouseMove(mouse_move) => Rc::new(mouse_move),
             Event::Layout(layout) => Rc::new(layout),
+            Event::Select(select) => Rc::new(select),
         }
     }
 }
@@ -51,6 +55,52 @@ impl DomState {
 
         self.modifiers().state().control_key()
     }
+
+    pub fn shift(&self) -> bool {
+        self.modifiers().state().shift_key()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EventState {
+    node_id: NodeId,
+    dom_state: DomState,
+}
+
+impl EventState {
+    pub fn new(node_id: NodeId, dom_state: DomState) -> Self {
+        Self { node_id, dom_state }
+    }
+
+    // pub fn get_start_cursor(&self) -> Option<Cursor> {
+    //     self.dom_state.selection.iter().find_map(|range| {
+    //         // we search for parent since text cant get events
+    //         if range.parent_id == self.node_id {
+    //             Some(range.start_cursor)
+    //         } else {
+    //             None
+    //         }
+    //     })
+    // }
+
+    // pub fn get_end_cursor(&self) -> Option<Cursor> {
+    //     self.dom_state.selection.iter().find_map(|range| {
+    //         // we search for parent since text cant get events
+    //         if range.parent_id == self.node_id {
+    //             Some(range.end_cursor)
+    //         } else {
+    //             None
+    //         }
+    //     })
+    // }
+
+    pub fn state(&self) -> &DomState {
+        &self.dom_state
+    }
+
+    pub fn focused(&self) -> Option<crate::dom::FocusedNode> {
+        self.dom_state.focused
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -63,22 +113,22 @@ pub struct DomEvent {
 
 #[derive(Clone, Debug)]
 pub struct FocusEvent {
-    pub state: DomState,
+    pub state: EventState,
 }
 
 #[derive(Clone, Debug)]
 pub struct BlurEvent {
-    pub state: DomState,
+    pub state: EventState,
 }
 
 #[derive(Clone, Debug)]
 pub struct DragEvent {
-    pub state: DomState,
+    pub state: EventState,
 }
 
 #[derive(Clone, Debug)]
 pub struct InputEvent {
-    pub state: DomState,
+    pub state: EventState,
     pub logical_key: Key,
     pub physical_key: PhysicalKey,
     pub text: Option<SmolStr>,
@@ -86,7 +136,7 @@ pub struct InputEvent {
 
 #[derive(Clone, Debug)]
 pub struct KeyInput {
-    pub state: DomState,
+    pub state: EventState,
     pub element_state: ElementState,
     pub logical_key: Key,
     pub physical_key: PhysicalKey,
@@ -95,18 +145,26 @@ pub struct KeyInput {
 
 #[derive(Clone, Debug)]
 pub struct ClickEvent {
-    pub state: DomState,
+    pub state: EventState,
     pub button: MouseButton,
     pub element_state: ElementState,
+    pub text_cursor_position: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
 pub struct MouseMoveEvent {
-    pub state: DomState,
+    pub state: EventState,
 }
 
 #[derive(Clone, Debug)]
 pub struct LayoutEvent {
-    pub state: DomState,
+    pub state: EventState,
     pub rect: epaint::Rect,
+}
+
+#[derive(Clone, Debug)]
+pub struct SelectEvent {
+    pub state: EventState,
+    pub start_cursor: Cursor,
+    pub end_cursor: Cursor,
 }

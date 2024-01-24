@@ -1,4 +1,4 @@
-use std::{str::FromStr, sync::Arc};
+use std::{sync::Arc, time::Instant};
 
 use dioxus::{
     core::{BorrowedAttributeValue, ElementId, Mutations},
@@ -11,12 +11,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, KeyEvent, Modifiers, MouseScrollDelta},
-    keyboard::SmolStr,
-    platform::modifier_supplement::KeyEventExtModifierSupplement,
 };
 
 use crate::{
-    events::{self, DomEvent, LayoutEvent},
+    events::{self, DomEvent, EventState, LayoutEvent},
     renderer::{Renderer, ScreenDescriptor},
 };
 
@@ -48,6 +46,18 @@ pub struct NodeContext {
     pub computed: Computed,
 }
 
+impl NodeContext {
+    pub fn get_text_cursor(&self, pick_position: Vec2) -> Option<Cursor> {
+        if self.tag != "text".into() {
+            return None;
+        }
+
+        let galley = self.computed.galley.as_ref()?;
+        let cursor = galley.cursor_from_pos(pick_position - self.computed.rect.min.to_vec2());
+        Some(cursor)
+    }
+}
+
 #[derive(Default, Clone, Copy, Debug)]
 pub struct KeyboardState {
     pub modifiers: Modifiers,
@@ -63,7 +73,7 @@ pub struct CursorState {
 #[derive(Debug, Clone, Copy)]
 pub struct SelectedNode {
     pub node_id: NodeId,
-    pub parent_id: Option<NodeId>,
+    pub parent_id: NodeId,
     /// The position of the node when it was selected
     pub computed_rect_when_selected: epaint::Rect,
     pub start_cursor: Cursor,
@@ -73,7 +83,7 @@ pub struct SelectedNode {
 #[derive(Debug, Clone, Copy)]
 pub struct FocusedNode {
     pub node_id: NodeId,
-    pub text_cursor: Option<usize>,
+    pub text_child_id: Option<NodeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +94,7 @@ pub struct DomState {
     pub selection: Vec<SelectedNode>,
     pub keyboard_state: KeyboardState,
     pub cursor_state: CursorState,
+    pub last_clicked: Option<(Instant, Option<NodeId>)>,
 }
 
 pub struct Dom {
@@ -137,6 +148,7 @@ impl Dom {
                 selection: vec![],
                 keyboard_state: Default::default(),
                 cursor_state: Default::default(),
+                last_clicked: None,
             },
             event_sender,
         }
@@ -440,6 +452,9 @@ impl Dom {
                     let node = self.tree.get_node_context_mut(node_id).unwrap();
                     node.attrs.insert(key, value.into());
                     self.tree.mark_dirty(node_id).unwrap();
+                    self.state
+                        .selection
+                        .retain(|range| range.node_id != node_id);
                 }
                 dioxus::core::Mutation::ReplaceWith { id, m } => {
                     let new_nodes = self.stack.split_off(self.stack.len() - m);
@@ -748,95 +763,32 @@ impl Dom {
                         return true;
                     }
                     if node.computed.rect.intersects(selection_rect) {
-                        let start_cursor = node.computed.galley.as_ref().unwrap().cursor_from_pos(
-                            dom.state.cursor_state.current_position.to_vec2()
-                                - node.computed.rect.min.to_vec2(),
-                        );
+                        let mut start_cursor =
+                            node.get_text_cursor(start_position.to_vec2()).unwrap();
+                        let mut end_cursor = node
+                            .get_text_cursor(
+                                dom.state
+                                    .cursor_state
+                                    .drag_end_position
+                                    .unwrap_or(dom.state.cursor_state.current_position)
+                                    .to_vec2(),
+                            )
+                            .unwrap();
 
-                        let end_cursor = node.computed.galley.as_ref().unwrap().cursor_from_pos(
-                            dom.state
-                                .cursor_state
-                                .drag_start_position
-                                .unwrap()
-                                .to_vec2()
-                                - node.computed.rect.min.to_vec2(),
-                        );
+                        // swap cursors if the selection is backwards
+                        if start_cursor.pcursor.offset > end_cursor.pcursor.offset {
+                            std::mem::swap(&mut start_cursor, &mut end_cursor);
+                        }
 
-                        // println!("start_cursor: {:?}", start_cursor);
-                        // println!("end_cursor: {:?}", end_cursor);
-
-                        dom.state.selection.push(SelectedNode {
-                            node_id: id,
-                            parent_id: node.parent_id,
-                            computed_rect_when_selected: node.computed.rect,
-                            start_cursor,
-                            end_cursor,
-                        });
+                        dom.set_selection(id, start_cursor, end_cursor, false);
                     }
 
                     false
                 });
             }
-
-            self.handle_manual_selection();
         }
 
         true
-    }
-
-    pub fn handle_manual_selection(&mut self) {
-        // on input fields you want to select the text on the mouse position, but since the text is not as big as the parent container we need to check this.
-        // let mut only_parent_of_text_clicked = None;
-
-        // self.traverse_tree_with_parent(self.get_root_id(), None, &mut |dom, node_id, parent_id| {
-        //     // if !specific_nodes.is_empty() && !specific_nodes.contains(&node.id) {
-        //     //     return true;
-        //     // }
-        //     let [node, parent] = dom
-        //         .tree
-        //         .get_disjoint_node_context_mut([node_id, parent_id.unwrap()])
-        //         .unwrap();
-
-        //     if node.tag == "text".into() {
-        //         only_parent_of_text_clicked = None;
-        //         let relative_position = dom.state.cursor_state.current_position.to_vec2()
-        //             - node.computed.rect.min.to_vec2();
-        //         let text = node.attrs.get("value").unwrap();
-        //         let galley = node.styling.get_font_galley(
-        //             text,
-        //             &self.renderer.taffy,
-        //             &self.renderer.fonts,
-        //             &parent.unwrap().styling,
-        //         );
-        //         let cursor = galley.cursor_from_pos(relative_position);
-        //         self.cursor_state.cursor = cursor;
-        //         return false;
-        //     }
-
-        //     if node.attrs.get("cursor").is_some() {
-        //         only_parent_of_text_clicked = Some(node_id);
-
-        //         return true;
-        //     }
-
-        //     true
-        // });
-
-        // if let Some(parent_id) = only_parent_of_text_clicked {
-        //     let parent = vdom.nodes.get(parent_id).unwrap();
-        //     let node = vdom.nodes.get(*parent.children.first().unwrap()).unwrap();
-
-        //     let relative_position = mouse_pos.to_vec2() - node.computed.rect.min.to_vec2();
-        //     let text = node.attrs.get("value").unwrap();
-        //     let galley = node.styling.get_font_galley(
-        //         text,
-        //         &self.renderer.taffy,
-        //         &self.renderer.fonts,
-        //         &parent.styling,
-        //     );
-        //     let cursor = galley.cursor_from_pos(relative_position);
-        //     self.cursor_state.cursor = cursor;
-        // }
     }
 
     pub fn on_mouse_input(
@@ -861,7 +813,7 @@ impl Dom {
         // find first element with tabindex
         let mut focused_text_child = None;
 
-        let current_focus_id = self.state.focused.map(|f| f.node_id);
+        let mut current_focus_id = self.state.focused.map(|f| f.node_id);
 
         self.state.focused = self.state.hovered.clone().iter().rev().find_map(|id| {
             let Some(node) = self.tree.get_node_context(*id) else {
@@ -873,39 +825,20 @@ impl Dom {
             }
 
             if node.attrs.get("tabindex").is_some() || node.listeners.contains("click") {
-                let maybe_cursor = if let Some(focused_text_child) = focused_text_child {
-                    let galley = self
-                        .tree
-                        .get_node_context(focused_text_child)
-                        .unwrap()
-                        .computed
-                        .galley
-                        .as_ref()
-                        .unwrap();
-
-                    let cursor = galley.cursor_from_pos(
-                        self.state.cursor_state.current_position.to_vec2()
-                            - node.computed.rect.min.to_vec2(),
-                    );
-
-                    Some(cursor.pcursor.offset)
-                } else {
-                    None
-                };
-
                 let node = FocusedNode {
                     node_id: *id,
-                    text_cursor: maybe_cursor,
+                    text_child_id: focused_text_child,
                 };
 
                 self.send_event_to_element(
                     *id,
                     "focus",
                     Arc::new(events::Event::Focus(events::FocusEvent {
-                        state: self.state.clone(),
+                        state: EventState::new(*id, self.state.clone()),
                     })),
                     true,
                 );
+                current_focus_id = Some(*id);
 
                 Some(node)
             } else {
@@ -920,7 +853,7 @@ impl Dom {
                     current_focus_id,
                     "blur",
                     Arc::new(events::Event::Blur(events::BlurEvent {
-                        state: self.state.clone(),
+                        state: EventState::new(current_focus_id, self.state.clone()),
                     })),
                     true,
                 );
@@ -928,16 +861,29 @@ impl Dom {
         }
 
         if let Some(focused) = self.state.focused {
+            let text_cursor_position = if let Some(text_child_id) = focused.text_child_id {
+                let node = self.tree.get_node_context(text_child_id).unwrap();
+                let cursor = node
+                    .get_text_cursor(self.state.cursor_state.current_position.to_vec2())
+                    .unwrap();
+
+                Some(cursor.pcursor.offset)
+            } else {
+                None
+            };
+
             let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-                state: self.state.clone(),
+                state: EventState::new(focused.node_id, self.state.clone()),
                 button: button.clone(),
                 element_state: ElementState::Pressed,
+                text_cursor_position,
             }));
 
             let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-                state: self.state.clone(),
+                state: EventState::new(focused.node_id, self.state.clone()),
                 button: button.clone(),
                 element_state: ElementState::Released,
+                text_cursor_position,
             }));
 
             match state {
@@ -963,6 +909,88 @@ impl Dom {
                         true,
                     );
                 }
+            }
+        }
+
+        // if we clicked on the same node as last time, then we should select the word
+        if let winit::event::ElementState::Pressed = state {
+            self.state.selection.clear();
+
+            let selected_something =
+                if let Some((time_last_clicked, last_clicked)) = self.state.last_clicked {
+                    if Instant::now() - time_last_clicked > std::time::Duration::from_millis(500) {
+                        false
+                    } else if last_clicked.is_some() {
+                        focused_text_child == last_clicked
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+            if selected_something {
+                let node = self
+                    .tree
+                    .get_node_context(focused_text_child.unwrap())
+                    .unwrap();
+
+                let galley = node.computed.galley.as_ref().unwrap();
+                let cursor = node
+                    .get_text_cursor(self.state.cursor_state.current_position.to_vec2())
+                    .unwrap();
+
+                let mut start_cursor = cursor;
+                let mut end_cursor = cursor;
+
+                // find the start of the word
+                while start_cursor.pcursor.offset > 0 {
+                    let prev_char = galley.text().chars().nth(start_cursor.pcursor.offset - 1);
+                    if prev_char.is_none() {
+                        break;
+                    }
+                    let prev_char = prev_char.unwrap();
+
+                    if prev_char.is_whitespace() {
+                        break;
+                    }
+
+                    start_cursor.pcursor.offset -= 1;
+                }
+
+                // find the end of the word
+                while end_cursor.pcursor.offset < galley.text().len() {
+                    let next_char = galley.text().chars().nth(end_cursor.pcursor.offset);
+                    if next_char.is_none() {
+                        break;
+                    }
+                    let next_char = next_char.unwrap();
+
+                    if next_char.is_whitespace() {
+                        break;
+                    }
+
+                    end_cursor.pcursor.offset += 1;
+                }
+
+                start_cursor.ccursor.index = start_cursor.pcursor.offset;
+                end_cursor.ccursor.index = end_cursor.pcursor.offset;
+
+                start_cursor.rcursor.column = start_cursor.pcursor.offset;
+                end_cursor.rcursor.column = end_cursor.pcursor.offset;
+
+                // swap cursors if the selection is backwards
+                if start_cursor.pcursor.offset > end_cursor.pcursor.offset {
+                    std::mem::swap(&mut start_cursor, &mut end_cursor);
+                }
+
+                self.set_selection(focused_text_child.unwrap(), start_cursor, end_cursor, true);
+            }
+
+            self.state.last_clicked = if selected_something {
+                None
+            } else {
+                Some((Instant::now(), focused_text_child))
             }
         }
 
@@ -1012,24 +1040,6 @@ impl Dom {
         true
     }
 
-    // pub fn on_char(&mut self, c: &char) -> bool {
-    //     let Some(focused) = self.state.focused else {
-    //         return false;
-    //     };
-
-    //     self.send_event_to_element(
-    //         focused.node_id,
-    //         "input",
-    //         Arc::new(events::Event::Input(events::InputEvent {
-    //             state: self.state.clone(),
-    //             text: *c,
-    //         })),
-    //         true,
-    //     );
-
-    //     true
-    // }
-
     pub fn on_keyboard_input(&mut self, input: &KeyEvent) -> bool {
         let Some(focused) = self.state.focused else {
             return false;
@@ -1040,7 +1050,7 @@ impl Dom {
                 focused.node_id,
                 "input",
                 Arc::new(events::Event::Input(events::InputEvent {
-                    state: self.state.clone(),
+                    state: EventState::new(focused.node_id, self.state.clone()),
                     logical_key: input.logical_key.clone(),
                     physical_key: input.physical_key,
                     text: input.text.clone(),
@@ -1056,7 +1066,7 @@ impl Dom {
                 winit::event::ElementState::Released => "keyup",
             },
             Arc::new(events::Event::Key(events::KeyInput {
-                state: self.state.clone(),
+                state: EventState::new(focused.node_id, self.state.clone()),
                 element_state: input.state,
                 logical_key: input.logical_key.clone(),
                 physical_key: input.physical_key,
@@ -1064,6 +1074,23 @@ impl Dom {
             })),
             true,
         );
+
+        // check if we need to select all
+        if let Some(text_child_id) = focused.text_child_id {
+            let winit::keyboard::Key::Character(c) = &input.logical_key else {
+                return true;
+            };
+
+            if *c == "a" && self.state.modifiers().state().control_key() {
+                let node = self.tree.get_node_context(text_child_id).unwrap();
+                let galley = node.computed.galley.as_ref().unwrap();
+
+                // select all of the text
+                let start = galley.cursor_from_pos(Vec2::ZERO);
+                let end = galley.end();
+                self.set_selection(text_child_id, start, end, true);
+            }
+        }
 
         true
     }
@@ -1076,7 +1103,7 @@ impl Dom {
                 *node_id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
-                    state: self.state.clone(),
+                    state: EventState::new(*node_id, self.state.clone()),
                     rect,
                 })),
                 false,
@@ -1092,7 +1119,7 @@ impl Dom {
                 id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
-                    state: dom.state.clone(),
+                    state: EventState::new(id, dom.state.clone()),
                     rect,
                 })),
                 false,
@@ -1103,5 +1130,46 @@ impl Dom {
 
     pub fn on_window_moved(&mut self, position: &PhysicalPosition<i32>) {
         self.state.window_position = *position;
+    }
+
+    pub fn get_event_state(&mut self, node_id: NodeId) -> EventState {
+        EventState::new(node_id, self.state.clone())
+    }
+
+    pub fn set_selection(
+        &mut self,
+        node_id: NodeId,
+        start_cursor: Cursor,
+        end_cursor: Cursor,
+        clear: bool,
+    ) {
+        let node = self.tree.get_node_context(node_id).unwrap();
+
+        if node.tag != "text".into() {
+            log::warn!("set_selection called on non-text node");
+            return;
+        }
+
+        if clear {
+            self.state.selection.clear();
+        }
+        self.state.selection.push(SelectedNode {
+            node_id,
+            parent_id: node.parent_id.unwrap(),
+            computed_rect_when_selected: node.computed.rect,
+            start_cursor,
+            end_cursor,
+        });
+
+        self.send_event_to_element(
+            node.parent_id.unwrap(),
+            "select",
+            Arc::new(events::Event::Select(events::SelectEvent {
+                state: EventState::new(node_id, self.state.clone()),
+                start_cursor,
+                end_cursor,
+            })),
+            true,
+        );
     }
 }

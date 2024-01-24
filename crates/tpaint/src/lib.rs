@@ -130,6 +130,11 @@ pub mod prelude {
                 crate::events::LayoutEvent;
                 onlayout
             ];
+
+            impl_event![
+                crate::events::SelectEvent;
+                onselect
+            ];
         }
     }
 }
