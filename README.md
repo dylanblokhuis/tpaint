@@ -10,18 +10,11 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Text color
 - Hot reloading, use the ``hot-reload`` feature
 - Scrolling
-- Async images and vector graphics through ``Image`` component, with 'src' attribute.
+- Async images and vector graphics through ``Image`` component, with ``src`` attribute.
 - Grid and flexbox (through Taffy)
   
 ### What needs implementing:
-
-- Loading images from network instead of only from disk
-- Number field with drag value
-- Checkbox field
-- Radio field
-- Select field
-- Textarea field
-- Input text field
+- Text selection and copying
 - Links
 - Clicking the scrollbars
 - many more..
