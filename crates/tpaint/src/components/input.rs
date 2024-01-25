@@ -44,12 +44,11 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
     let handle_input = move |event: Event<InputEvent>| {
         let mut text = text.make_mut();
 
-        let mut range = *selection_start.get()..*cursor_pos.get();
+        let range = *selection_start.get()..*cursor_pos.get();
         let is_selecting = range.start != range.end;
 
         println!("is_selected {} range: {:?}", is_selecting, range);
 
-        // println!("input: {:?}", event);
         // use this for shortcuts
         let before_text = text.clone();
         match event.logical_key.clone() {
@@ -190,8 +189,6 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         tabindex: 0,
         oninput: handle_input,
         onclick: handle_click,
-        text_cursor: *cursor_pos.get() as i64,
-
         onfocus: move |_| {
             cursor_blinking.cancel(cx);
             cursor_blinking.restart();
@@ -202,22 +199,11 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
             is_focused.set(false);
         },
         onselect: move |event| {
-            println!("select: {:?}", event);
             selection_start.set(event.start_cursor.ccursor.index);
             cursor_pos.set(event.end_cursor.ccursor.index);
         },
+        text_cursor: *cursor_pos.get() as i64,
         text_cursor_visible: *cursor_visible.get() && *is_focused.get(),
-        // onclick: move |_| {
-        //     // text.set("bg-black".to_string());
-        // },
-        // onkeydown: handle_keydown,
-        // oninput: handle_input,
-        // onclick: handle_click,
-        // ondrag: handle_drag,
-        // text_cursor: *cursor_pos.get() as i64,
-        // text_cursor_visible: *cursor_visible.get() && *is_focused.get(),
-        // text_selection_start: *selection_start.get() as i64,
-        // global_selection_mode: "off",
 
         "{text}"
       }

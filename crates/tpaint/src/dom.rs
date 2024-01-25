@@ -1075,21 +1075,55 @@ impl Dom {
             true,
         );
 
-        // check if we need to select all
         if let Some(text_child_id) = focused.text_child_id {
-            let winit::keyboard::Key::Character(c) = &input.logical_key else {
-                return true;
-            };
+            if let winit::keyboard::Key::Character(c) = &input.logical_key {
+                // check if we need to select all
+                if *c == "a" && self.state.modifiers().state().control_key() {
+                    let node = self.tree.get_node_context(text_child_id).unwrap();
+                    let galley = node.computed.galley.as_ref().unwrap();
 
-            if *c == "a" && self.state.modifiers().state().control_key() {
+                    // select all of the text
+                    let start = galley.cursor_from_pos(Vec2::ZERO);
+                    let end = galley.end();
+                    self.set_selection(text_child_id, start, end, true);
+                }
+            }
+
+            if self.state.modifiers().state().shift_key() {
+                let parent = self.tree.get_node_context(focused.node_id).unwrap();
                 let node = self.tree.get_node_context(text_child_id).unwrap();
                 let galley = node.computed.galley.as_ref().unwrap();
 
-                // select all of the text
-                let start = galley.cursor_from_pos(Vec2::ZERO);
-                let end = galley.end();
-                self.set_selection(text_child_id, start, end, true);
+                // if not selected anything, we use the cursor, otherwise we nothing
+                let (start_cursor, end_cursor) = if self.state.selection.is_empty() {
+                    let cursor = parent
+                        .attrs
+                        .get("text_cursor")
+                        .unwrap()
+                        .parse::<usize>()
+                        .unwrap();
+                    let mut m = Cursor::default();
+                    m.ccursor.index = cursor;
+                    m.pcursor.offset = cursor;
+                    m.rcursor.column = cursor;
+                    (m, m)
+                } else {
+                    let select = self.state.selection.first().unwrap();
+                    (select.start_cursor, select.end_cursor)
+                };
+
+                if let winit::keyboard::Key::Named(named) = &input.logical_key {
+                    match named {
+                        winit::keyboard::NamedKey::ArrowLeft => {
+                            // we select 1 to the left!
+                        }
+                        _ => {}
+                    }
+                }
             }
+
+            // check if we need to select anything with shift
+            // if
         }
 
         true
