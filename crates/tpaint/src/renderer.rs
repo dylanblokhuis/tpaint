@@ -31,13 +31,17 @@ pub struct Renderer {
     pub tessellator: Tessellator,
 }
 
+pub struct RendererDescriptor {
+    pub window_size: PhysicalSize<u32>,
+    pub pixels_per_point: f32,
+    pub font_definitions: FontDefinitions,
+}
+
 impl Renderer {
     pub fn new(
-        window_size: PhysicalSize<u32>,
-        pixels_per_point: f32,
-        definitions: FontDefinitions,
+        desc: RendererDescriptor
     ) -> Renderer {
-        let fonts = Fonts::new(pixels_per_point, 4096, definitions);
+        let fonts = Fonts::new(desc.pixels_per_point, 4096, desc.font_definitions);
         let mut tex_manager = TextureManager::default();
         let font_image_delta: Option<_> = fonts.font_image_delta();
         if let Some(font_image_delta) = font_image_delta {
@@ -47,6 +51,8 @@ impl Renderer {
                 TextureOptions::LINEAR,
             );
         }
+
+        dbg!(fonts.families());
 
         let (font_tex_size, prepared_discs) = {
             let atlas = fonts.texture_atlas();
@@ -63,8 +69,8 @@ impl Renderer {
 
         Renderer {
             screen_descriptor: ScreenDescriptor {
-                pixels_per_point,
-                size: window_size,
+                pixels_per_point: desc.pixels_per_point,
+                size: desc.window_size,
             },
             fonts,
             tex_manager: Arc::new(Mutex::new(tex_manager)),

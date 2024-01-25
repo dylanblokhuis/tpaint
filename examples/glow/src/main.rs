@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use simple_logger::SimpleLogger;
-use tpaint::DomEventLoop;
+use tpaint::{epaint::{text::{FontData, FontDefinitions}, FontFamily}, DomEventLoop, RendererDescriptor};
 use tpaint_glow::painter::Painter;
+use raw_window_handle::HasRawWindowHandle;
+use winit::event::WindowEvent;
+use glutin::context::NotCurrentGlContext;
 
 #[cfg(feature = "hot-reload")]
 use tpaint::prelude::dioxus_hot_reload;
@@ -21,11 +24,11 @@ type UserEvent = ();
 impl GlutinWindowContext {
     #[allow(unsafe_code)]
     unsafe fn new(event_loop: &winit::event_loop::EventLoopWindowTarget<UserEvent>) -> Self {
-        use glutin::context::NotCurrentGlContextSurfaceAccessor;
+        // use glutin::context::NotCurrentGlContextSurfaceAccessor;
         use glutin::display::GetGlDisplay;
         use glutin::display::GlDisplay;
         use glutin::prelude::GlSurface;
-        use raw_window_handle::HasRawWindowHandle;
+        // use raw_window_handle::HasRawWindowHandle;
         let winit_window_builder = winit::window::WindowBuilder::new()
             .with_resizable(true)
             .with_inner_size(winit::dpi::LogicalSize {
@@ -44,7 +47,7 @@ impl GlutinWindowContext {
         log::debug!("trying to get gl_config");
         let (mut window, gl_config) =
             glutin_winit::DisplayBuilder::new() // let glutin-winit helper crate handle the complex parts of opengl context creation
-                .with_preference(glutin_winit::ApiPrefence::FallbackEgl) // https://github.com/emilk/egui/issues/2520#issuecomment-1367841150
+                .with_preference(glutin_winit::ApiPreference::FallbackEgl) // https://github.com/emilk/egui/issues/2520#issuecomment-1367841150
                 .with_window_builder(Some(winit_window_builder.clone()))
                 .build(
                     event_loop,
@@ -161,14 +164,27 @@ fn main() {
 
     let clear_color = [1.0, 1.0, 1.0];
 
-    let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build().unwrap();
     let (gl_window, gl) = create_display(&event_loop);
     let gl = std::sync::Arc::new(gl);
 
+    let mut fonts = FontDefinitions::default();
+    // Install my own font (maybe supporting non-latin characters):
+    fonts.font_data.insert("Inter-Regular".to_owned(),
+    FontData::from_static(include_bytes!("../../example_ui/assets/Inter-Regular.ttf"))); // .ttf and .otf supported
+
+    // Put my font first (highest priority):
+    fonts.families.get_mut(&FontFamily::Proportional).unwrap()
+    .insert(0, "Inter-Regular".to_owned());
+
+
     let mut app = DomEventLoop::spawn(
         app::app,
-        gl_window.window().inner_size(),
-        gl_window.window().scale_factor() as f32,
+        RendererDescriptor {
+            font_definitions: fonts,
+            pixels_per_point: gl_window.window().scale_factor() as f32,
+            window_size: gl_window.window().inner_size(),
+        },
         event_loop.create_proxy(),
         (),
         (),
@@ -179,9 +195,9 @@ fn main() {
         })
         .unwrap();
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(move |event, target| {
         let mut redraw = || {
-            *control_flow = winit::event_loop::ControlFlow::Wait;
+            target.set_control_flow(winit::event_loop::ControlFlow::Wait);
             unsafe {
                 use glow::HasContext as _;
                 gl.clear_color(clear_color[0], clear_color[1], clear_color[2], 1.0);
@@ -208,44 +224,41 @@ fn main() {
             gl_window.window().set_visible(true);
         };
 
+        
         match event {
-            winit::event::Event::RedrawEventsCleared if cfg!(target_os = "windows") => redraw(),
-            winit::event::Event::RedrawRequested(_) if !cfg!(target_os = "windows") => redraw(),
+            // winit::event::Event::RedrawRequested if !cfg!(target_os = "windows") => redraw(),
+            winit::event::Event::WindowEvent {
+                event: ref window_event,
+                ..
+            } => {
+                match window_event {
+                    WindowEvent::Resized(size) => {
+                        gl_window.resize(*size);
+                    }
 
-            winit::event::Event::WindowEvent { event, .. } => {
-                use winit::event::WindowEvent;
-                if matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed) {
-                    *control_flow = winit::event_loop::ControlFlow::Exit;
+                    WindowEvent::CloseRequested | WindowEvent::Destroyed => {
+                        target.exit();
+                    }
+
+                    WindowEvent::RedrawRequested => {
+                        redraw();
+                    }
+
+                    _ => {}
                 }
 
-                if let winit::event::WindowEvent::Resized(physical_size) = &event {
-                    gl_window.resize(*physical_size);
-                } else if let winit::event::WindowEvent::ScaleFactorChanged {
-                    new_inner_size, ..
-                } = &event
-                {
-                    gl_window.resize(**new_inner_size);
-                }
-
-                let repaint = app.on_window_event(&event);
-
+                let repaint = app.on_window_event(window_event);
                 if repaint {
                     gl_window.window().request_redraw();
                 }
             }
-            winit::event::Event::LoopDestroyed => painter.destroy(),
-            winit::event::Event::NewEvents(winit::event::StartCause::ResumeTimeReached {
-                ..
-            }) => {
-                gl_window.window().request_redraw();
-            }
+
             winit::event::Event::UserEvent(_) => {
                 gl_window.window().request_redraw();
             }
-
-            _ => (),
+            _ => {}
         }
-    });
+    }).unwrap();
 }
 
 fn create_display(
