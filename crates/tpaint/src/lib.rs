@@ -9,6 +9,8 @@ pub mod events;
 mod renderer;
 mod tailwind;
 
+pub use renderer::RendererDescriptor;
+
 #[doc(hidden)]
 pub trait EventReturn<P>: Sized {
     fn spawn(self, _cx: &dioxus::core::ScopeState) {}

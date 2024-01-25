@@ -1,15 +1,13 @@
 use std::{sync::{Arc, Mutex}, fmt::Debug, ops::Deref};
 
 use dioxus::prelude::{ScopeId, VirtualDom, Scope, Element};
-use epaint::{text::FontDefinitions, textures::TexturesDelta, ClippedPrimitive, TextureManager};
-
-
-use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy, event::WindowEvent};
+use epaint::{textures::TexturesDelta, ClippedPrimitive, TextureManager};
+use winit::{event_loop::EventLoopProxy, event::WindowEvent};
 
 
 use crate::{
     events::DomEvent,
-    renderer::{Renderer, ScreenDescriptor},
+    renderer::{Renderer, RendererDescriptor, ScreenDescriptor},
     dom::Dom,
 };
 
@@ -26,9 +24,10 @@ pub struct DomContext {
     pub client: reqwest::Client,
 }
 
+
 impl DomEventLoop {
 
-    pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, window_size: PhysicalSize<u32>, pixels_per_point: f32, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
+    pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, renderer_desc: RendererDescriptor, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
         let dom = Arc::new(Mutex::new(Dom::new(dom_event_sender.clone())));
     
@@ -43,7 +42,7 @@ impl DomEventLoop {
         dioxus_hot_reload::connect(move |msg| {
             let _ = hot_reload_tx.send(msg);
         });
-        let renderer = Renderer::new(window_size, pixels_per_point, FontDefinitions::default());
+        let renderer = Renderer::new(renderer_desc);
         
         std::thread::spawn({
             let dom = dom.clone();

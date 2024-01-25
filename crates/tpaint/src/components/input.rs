@@ -41,13 +41,14 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
         text
     };
 
+    // TODO: clean up
     let handle_input = move |event: Event<InputEvent>| {
         let mut text = text.make_mut();
 
         let range = *selection_start.get()..*cursor_pos.get();
         let is_selecting = range.start != range.end;
 
-        println!("is_selected {} range: {:?}", is_selecting, range);
+        // println!("is_selected {} range: {:?}", is_selecting, range);
 
         // use this for shortcuts
         let before_text = text.clone();

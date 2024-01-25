@@ -1,7 +1,7 @@
 use criterion::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 use dioxus::prelude::*;
-use tpaint::prelude::*;
+use tpaint::{prelude::*, RendererDescriptor};
 use tpaint::DomEventLoop;
 use winit::{event_loop::EventLoopBuilder, window::WindowBuilder};
 
@@ -44,8 +44,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let mut event_loop = DomEventLoop::spawn(
         app,
-        window.inner_size(),
-        window.scale_factor() as f32,
+        RendererDescriptor {
+            font_definitions: Default::default(),
+            pixels_per_point: window.scale_factor() as f32,
+            window_size: window.inner_size(),
+        },
         event_loop.create_proxy(),
         (),
         (),

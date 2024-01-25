@@ -9,14 +9,21 @@ pub fn app(cx: Scope) -> Element {
         view {
             class: "flex-col items-start gap-y-10 p-8 w-full overflow-y-scroll scrollbar-default bg-white",
 
-
-
             view {
                 "Hey"
             }
 
             Input {}
 
+            Image {
+                src: "./examples/example_ui/assets/feather.svg".to_string(),
+                class: "w-24 h-24"
+            }
+
+            Image {
+                src: "./examples/example_ui/assets/placeholder.png".to_string(),
+                class: "w-300"
+            }
 
 
             // view {

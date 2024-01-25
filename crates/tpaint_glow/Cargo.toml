@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 bytemuck = "1.13"
 tpaint = { path = "../tpaint" }
-glow = "0.12"
+glow = "0.13"
 log = "0.4"

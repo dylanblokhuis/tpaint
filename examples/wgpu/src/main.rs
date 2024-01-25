@@ -2,7 +2,7 @@
 #![allow(unsafe_code)]
 
 use simple_logger::SimpleLogger;
-use tpaint::DomEventLoop;
+use tpaint::{epaint::{text::{FontData, FontDefinitions}, FontFamily}, DomEventLoop, RendererDescriptor};
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
 
@@ -78,12 +78,25 @@ fn main() {
     };
     surface.configure(&device, &config);
 
+
+    let mut fonts = FontDefinitions::default();
+    // Install my own font (maybe supporting non-latin characters):
+    fonts.font_data.insert("Inter-Regular".to_owned(),
+    FontData::from_static(include_bytes!("../../example_ui/assets/Inter-Regular.ttf"))); // .ttf and .otf supported
+
+    // Put my font first (highest priority):
+    fonts.families.get_mut(&FontFamily::Proportional).unwrap()
+    .insert(0, "Inter-Regular".to_owned());
+
     let mut renderer = Renderer::new(&device, swapchain_format, None, 1);
 
     let mut app = DomEventLoop::spawn(
         app::app,
-        window.inner_size(),
-        window.scale_factor() as f32,
+        RendererDescriptor { 
+            window_size: window.inner_size(),
+            pixels_per_point: window.scale_factor() as f32,
+            font_definitions: fonts
+        },
         event_loop.create_proxy(),
         (),
         (),
@@ -97,8 +110,6 @@ fn main() {
             let _ = (&instance, &adapter);
 
             let mut redraw = || {
-                // target.control_flow() = winit::event_loop::ControlFlow::Poll;
-                // *control_flow = winit::event_loop::ControlFlow::Wait;
                 target.set_control_flow(winit::event_loop::ControlFlow::Wait);
                 let frame = surface
                     .get_current_texture()
