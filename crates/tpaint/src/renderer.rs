@@ -52,8 +52,6 @@ impl Renderer {
             );
         }
 
-        dbg!(fonts.families());
-
         let (font_tex_size, prepared_discs) = {
             let atlas = fonts.texture_atlas();
             let atlas = atlas.lock();
