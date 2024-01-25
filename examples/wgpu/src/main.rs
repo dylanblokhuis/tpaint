@@ -1,8 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(unsafe_code)]
 
+use std::sync::Arc;
+
 use simple_logger::SimpleLogger;
-use tpaint::{epaint::{text::{FontData, FontDefinitions}, FontFamily}, DomEventLoop, RendererDescriptor};
+use tpaint::{
+    epaint::{
+        text::{FontData, FontDefinitions},
+        FontFamily,
+    },
+    DomEventLoop, RendererDescriptor,
+};
 use tpaint_wgpu::{Renderer, ScreenDescriptor};
 use winit::event::WindowEvent;
 
@@ -25,22 +33,27 @@ fn main() {
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(chrome_layer))
         .expect("set up the subscriber");
 
-    SimpleLogger::new().with_level(log::LevelFilter::Info).init().unwrap();
-    
+    SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .init()
+        .unwrap();
+
     let event_loop = winit::event_loop::EventLoopBuilder::<UserEvent>::with_user_event()
         .build()
         .unwrap();
-    let window = winit::window::WindowBuilder::new()
-        .with_decorations(true)
-        .with_resizable(true)
-        .with_transparent(false)
-        .with_title("tpaint wgpu example")
-        .with_inner_size(winit::dpi::PhysicalSize {
-            width: 800,
-            height: 600,
-        })
-        .build(&event_loop)
-        .unwrap();
+    let window = Arc::new(
+        winit::window::WindowBuilder::new()
+            .with_decorations(true)
+            .with_resizable(true)
+            .with_transparent(false)
+            .with_title("tpaint wgpu example")
+            .with_inner_size(winit::dpi::PhysicalSize {
+                width: 800,
+                height: 600,
+            })
+            .build(&event_loop)
+            .unwrap(),
+    );
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
     let surface = unsafe { instance.create_surface(&window).unwrap() };
@@ -78,24 +91,28 @@ fn main() {
     };
     surface.configure(&device, &config);
 
-
     let mut fonts = FontDefinitions::default();
     // Install my own font (maybe supporting non-latin characters):
-    fonts.font_data.insert("Inter-Regular".to_owned(),
-    FontData::from_static(include_bytes!("../../example_ui/assets/Inter-Regular.ttf"))); // .ttf and .otf supported
+    fonts.font_data.insert(
+        "Inter-Regular".to_owned(),
+        FontData::from_static(include_bytes!("../../example_ui/assets/Inter-Regular.ttf")),
+    ); // .ttf and .otf supported
 
     // Put my font first (highest priority):
-    fonts.families.get_mut(&FontFamily::Proportional).unwrap()
-    .insert(0, "Inter-Regular".to_owned());
+    fonts
+        .families
+        .get_mut(&FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "Inter-Regular".to_owned());
 
     let mut renderer = Renderer::new(&device, swapchain_format, None, 1);
-
     let mut app = DomEventLoop::spawn(
         app::app,
-        RendererDescriptor { 
+        window.clone(),
+        RendererDescriptor {
             window_size: window.inner_size(),
             pixels_per_point: window.scale_factor() as f32,
-            font_definitions: fonts
+            font_definitions: fonts,
         },
         event_loop.create_proxy(),
         (),
@@ -135,7 +152,6 @@ fn main() {
                     pixels_per_point: screen_descriptor.pixels_per_point,
                 };
                 renderer.update_buffers(&device, &queue, &mut encoder, &primitives, screen);
-
                 {
                     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: None,

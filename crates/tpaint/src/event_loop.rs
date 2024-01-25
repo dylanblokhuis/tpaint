@@ -2,7 +2,7 @@ use std::{sync::{Arc, Mutex}, fmt::Debug, ops::Deref};
 
 use dioxus::prelude::{ScopeId, VirtualDom, Scope, Element};
 use epaint::{textures::TexturesDelta, ClippedPrimitive, TextureManager};
-use winit::{event_loop::EventLoopProxy, event::WindowEvent};
+use winit::{event::WindowEvent, event_loop::EventLoopProxy, window::Window};
 
 
 use crate::{
@@ -20,17 +20,18 @@ pub struct DomEventLoop {
 #[derive(Clone)]
 pub struct DomContext {
     pub texture_manager: Arc<Mutex<TextureManager>>,
+    pub window: Arc<Window>,
     #[cfg(feature = "images")]
     pub client: reqwest::Client,
+    pub event_sender: tokio::sync::mpsc::UnboundedSender<DomEvent>,
+    pub current_cursor_icon: winit::window::CursorIcon,
 }
 
 
 impl DomEventLoop {
-
-    pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, renderer_desc: RendererDescriptor, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
+    pub fn spawn<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(app: fn(Scope) -> Element, window: Arc<Window>, renderer_desc: RendererDescriptor, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
         let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
-        let dom = Arc::new(Mutex::new(Dom::new(dom_event_sender.clone())));
-    
+      
         #[cfg(all(feature = "hot-reload", debug_assertions))]
         let (hot_reload_tx, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<dioxus_hot_reload::HotReloadMsg>();
         #[cfg(not(all(feature = "hot-reload", debug_assertions)))]
@@ -43,20 +44,24 @@ impl DomEventLoop {
             let _ = hot_reload_tx.send(msg);
         });
         let renderer = Renderer::new(renderer_desc);
-        
+        let dom_context = DomContext {
+            texture_manager: renderer.tex_manager.clone(),
+            window: window.clone(),
+            #[cfg(feature = "images")]
+            client: reqwest::Client::new(),
+            event_sender: dom_event_sender.clone(),
+            current_cursor_icon: Default::default(),
+        };
+        let dom = Arc::new(Mutex::new(Dom::new(dom_context.clone())));
+
         std::thread::spawn({
             let dom = dom.clone();
-            let texture_manager = renderer.tex_manager.clone();
+            let context = dom_context.clone();
             move || {
-                let mut vdom = VirtualDom::new(app).with_root_context(root_context).with_root_context(DomContext {
-                    texture_manager,
-                    #[cfg(feature = "images")]
-                    client: reqwest::Client::new(),
-                });
+                let mut vdom = VirtualDom::new(app).with_root_context(root_context).with_root_context(context);
                 let mutations = vdom.rebuild();
                 dom.lock().unwrap().apply_mutations(mutations);
                 event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
-
     
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -160,7 +165,7 @@ impl DomEventLoop {
                 let mut dom = self.dom.lock().unwrap();
                 dom.state.keyboard_state.modifiers = Default::default();
                 if !focused {
-                    dom.state.focused = None;
+                    dom.set_focus(None);
                 }
             }
             _ => {}

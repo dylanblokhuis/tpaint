@@ -7,13 +7,14 @@ use dioxus::{
 use epaint::{text::cursor::Cursor, Pos2, Vec2};
 use rustc_hash::{FxHashMap, FxHashSet};
 use taffy::{prelude::*, Overflow};
-use tokio::sync::mpsc::UnboundedSender;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, KeyEvent, Modifiers, MouseScrollDelta},
+    window::CursorIcon,
 };
 
 use crate::{
+    event_loop::DomContext,
     events::{self, DomEvent, EventState, LayoutEvent},
     renderer::{Renderer, ScreenDescriptor},
 };
@@ -104,11 +105,11 @@ pub struct Dom {
     pub element_id_mapping: FxHashMap<ElementId, NodeId>,
     common_tags_and_attr_keys: FxHashSet<Arc<str>>,
     pub state: DomState,
-    event_sender: UnboundedSender<DomEvent>,
+    context: DomContext,
 }
 
 impl Dom {
-    pub fn new(event_sender: UnboundedSender<DomEvent>) -> Dom {
+    pub fn new(context: DomContext) -> Dom {
         let mut tree = TaffyTree::<NodeContext>::new();
 
         let root_id = tree
@@ -150,7 +151,7 @@ impl Dom {
                 cursor_state: Default::default(),
                 last_clicked: None,
             },
-            event_sender,
+            context,
         }
     }
 
@@ -502,6 +503,8 @@ impl Dom {
                 }
             }
         }
+
+        self.check_and_set_cursor_icon();
     }
 
     /// Clone node and its children, they all get new ids
@@ -657,7 +660,8 @@ impl Dom {
                     return;
                 };
 
-                self.event_sender
+                self.context
+                    .event_sender
                     .send(DomEvent {
                         name: name.clone(),
                         data: event.clone(),
@@ -684,7 +688,8 @@ impl Dom {
                 return;
             };
 
-            self.event_sender
+            self.context
+                .event_sender
                 .send(DomEvent {
                     name: name.clone(),
                     data: event.clone(),
@@ -788,6 +793,8 @@ impl Dom {
             }
         }
 
+        self.check_and_set_cursor_icon();
+
         true
     }
 
@@ -812,10 +819,7 @@ impl Dom {
 
         // find first element with tabindex
         let mut focused_text_child = None;
-
-        let mut current_focus_id = self.state.focused.map(|f| f.node_id);
-
-        self.state.focused = self.state.hovered.clone().iter().rev().find_map(|id| {
+        let focused_node = self.state.hovered.clone().iter().rev().find_map(|id| {
             let Some(node) = self.tree.get_node_context(*id) else {
                 return None;
             };
@@ -838,27 +842,13 @@ impl Dom {
                     })),
                     true,
                 );
-                current_focus_id = Some(*id);
 
                 Some(node)
             } else {
                 None
             }
         });
-
-        // send blur if the focused node is not the same as the previously focused node
-        if let Some(current_focus_id) = current_focus_id {
-            if self.state.focused.map(|f| f.node_id) != Some(current_focus_id) {
-                self.send_event_to_element(
-                    current_focus_id,
-                    "blur",
-                    Arc::new(events::Event::Blur(events::BlurEvent {
-                        state: EventState::new(current_focus_id, self.state.clone()),
-                    })),
-                    true,
-                );
-            }
-        }
+        self.set_focus(focused_node);
 
         if let Some(focused) = self.state.focused {
             let text_cursor_position = if let Some(text_child_id) = focused.text_child_id {
@@ -1089,38 +1079,40 @@ impl Dom {
                 }
             }
 
-            if self.state.modifiers().state().shift_key() {
-                let parent = self.tree.get_node_context(focused.node_id).unwrap();
-                let node = self.tree.get_node_context(text_child_id).unwrap();
-                let galley = node.computed.galley.as_ref().unwrap();
+            // if self.state.modifiers().state().shift_key() {
+            //     let parent = self.tree.get_node_context(focused.node_id).unwrap();
+            //     let node = self.tree.get_node_context(text_child_id).unwrap();
+            //     let galley = node.computed.galley.as_ref().unwrap();
 
-                // if not selected anything, we use the cursor, otherwise we nothing
-                let (start_cursor, end_cursor) = if self.state.selection.is_empty() {
-                    let cursor = parent
-                        .attrs
-                        .get("text_cursor")
-                        .unwrap()
-                        .parse::<usize>()
-                        .unwrap();
-                    let mut m = Cursor::default();
-                    m.ccursor.index = cursor;
-                    m.pcursor.offset = cursor;
-                    m.rcursor.column = cursor;
-                    (m, m)
-                } else {
-                    let select = self.state.selection.first().unwrap();
-                    (select.start_cursor, select.end_cursor)
-                };
+            //     // if not selected anything, we use the cursor, otherwise we nothing
+            //     let (start_cursor, end_cursor) = if self.state.selection.is_empty() {
+            //         let cursor = parent
+            //             .attrs
+            //             .get("text_cursor")
+            //             .unwrap()
+            //             .parse::<usize>()
+            //             .unwrap();
+            //         let mut m = Cursor::default();
+            //         m.ccursor.index = cursor;
+            //         m.pcursor.offset = cursor;
+            //         m.rcursor.column = cursor;
+            //         (m, m)
+            //     } else {
+            //         let select = self.state.selection.first().unwrap();
+            //         (select.start_cursor, select.end_cursor)
+            //     };
 
-                if let winit::keyboard::Key::Named(named) = &input.logical_key {
-                    match named {
-                        winit::keyboard::NamedKey::ArrowLeft => {
-                            // we select 1 to the left!
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            //     if let winit::keyboard::Key::Named(named) = &input.logical_key {
+            //         match named {
+            //             winit::keyboard::NamedKey::ArrowLeft => {
+            //                 // we select 1 to the left!
+
+            //                 if start_cursor == end
+            //             }
+            //             _ => {}
+            //         }
+            //     }
+            // }
 
             // check if we need to select anything with shift
             // if
@@ -1205,5 +1197,113 @@ impl Dom {
             })),
             true,
         );
+    }
+
+    pub fn set_focus(&mut self, focused_node: Option<FocusedNode>) {
+        let prev_focused = self.state.focused;
+        self.state.focused = focused_node;
+
+        if let Some(prev_focused) = prev_focused {
+            if let Some(focused) = self.state.focused {
+                if focused.node_id == prev_focused.node_id {
+                    return;
+                }
+            }
+
+            self.send_event_to_element(
+                prev_focused.node_id,
+                "blur",
+                Arc::new(events::Event::Blur(events::BlurEvent {
+                    state: EventState::new(prev_focused.node_id, self.state.clone()),
+                })),
+                true,
+            );
+        }
+    }
+
+    pub fn check_and_set_cursor_icon(&mut self) {
+        let mut new_cursor_icon = CursorIcon::Default;
+
+        // check if we're hovering over a node with tabindex or click listener
+        if let Some(hovered) = self.state.hovered.last() {
+            let node = self.tree.get_node_context(*hovered).unwrap();
+            let node = if node.tag == "text".into() {
+                self.tree.get_node_context(node.parent_id.unwrap()).unwrap()
+            } else {
+                node
+            };
+
+            if node.attrs.get("tabindex").is_some() || node.listeners.contains("click") {
+                new_cursor_icon = CursorIcon::Pointer;
+            }
+        }
+
+        // if we're just hovering over a text node, then we should set the cursor to text
+        if new_cursor_icon == CursorIcon::Default {
+            if let Some(hovered) = self.state.hovered.last() {
+                let node = self.tree.get_node_context(*hovered).unwrap();
+                if node.tag == "text".into() {
+                    new_cursor_icon = CursorIcon::Text;
+                }
+            }
+        }
+
+        // if node itself has a class put on it, then we should set the cursor to that as highest priority
+        if let Some(hovered) = self.state.hovered.last() {
+            let node = self.tree.get_node_context(*hovered).unwrap();
+            let node = if node.tag == "text".into() {
+                self.tree.get_node_context(node.parent_id.unwrap()).unwrap()
+            } else {
+                node
+            };
+            let classes = node.attrs.get("class");
+            for class in classes.unwrap_or(&"".into()).split_whitespace() {
+                let class = class.strip_prefix("cursor-");
+                if let Some(class) = class {
+                    match class {
+                        "default" => new_cursor_icon = CursorIcon::Default,
+                        "pointer" => new_cursor_icon = CursorIcon::Pointer,
+                        "wait" => new_cursor_icon = CursorIcon::Wait,
+                        "text" => new_cursor_icon = CursorIcon::Text,
+                        "move" => new_cursor_icon = CursorIcon::Move,
+                        "help" => new_cursor_icon = CursorIcon::Help,
+                        "not-allowed" => new_cursor_icon = CursorIcon::NotAllowed,
+                        "context-menu" => new_cursor_icon = CursorIcon::ContextMenu,
+                        "progress" => new_cursor_icon = CursorIcon::Progress,
+                        "cell" => new_cursor_icon = CursorIcon::Cell,
+                        "crosshair" => new_cursor_icon = CursorIcon::Crosshair,
+                        "vertical-text" => new_cursor_icon = CursorIcon::VerticalText,
+                        "alias" => new_cursor_icon = CursorIcon::Alias,
+                        "copy" => new_cursor_icon = CursorIcon::Copy,
+                        "no-drop" => new_cursor_icon = CursorIcon::NoDrop,
+                        "grab" => new_cursor_icon = CursorIcon::Grab,
+                        "grabbing" => new_cursor_icon = CursorIcon::Grabbing,
+                        "all-scroll" => new_cursor_icon = CursorIcon::AllScroll,
+                        "col-resize" => new_cursor_icon = CursorIcon::ColResize,
+                        "row-resize" => new_cursor_icon = CursorIcon::RowResize,
+                        "n-resize" => new_cursor_icon = CursorIcon::NResize,
+                        "e-resize" => new_cursor_icon = CursorIcon::EResize,
+                        "s-resize" => new_cursor_icon = CursorIcon::SResize,
+                        "w-resize" => new_cursor_icon = CursorIcon::WResize,
+                        "ne-resize" => new_cursor_icon = CursorIcon::NeResize,
+                        "nw-resize" => new_cursor_icon = CursorIcon::NwResize,
+                        "se-resize" => new_cursor_icon = CursorIcon::SeResize,
+                        "sw-resize" => new_cursor_icon = CursorIcon::SwResize,
+                        "ew-resize" => new_cursor_icon = CursorIcon::EwResize,
+                        "ns-resize" => new_cursor_icon = CursorIcon::NsResize,
+                        "nesw-resize" => new_cursor_icon = CursorIcon::NeswResize,
+                        "nwse-resize" => new_cursor_icon = CursorIcon::NwseResize,
+                        "zoom-in" => new_cursor_icon = CursorIcon::ZoomIn,
+                        "zoom-out" => new_cursor_icon = CursorIcon::ZoomOut,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        if self.context.current_cursor_icon != new_cursor_icon {
+            self.context.window.set_cursor_icon(new_cursor_icon);
+            self.context.current_cursor_icon = new_cursor_icon;
+        }
     }
 }

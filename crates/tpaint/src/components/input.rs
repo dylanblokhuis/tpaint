@@ -177,8 +177,11 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
                 return;
             }
 
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+            interval.tick().await;
+
             loop {
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                interval.tick().await;
                 cursor_visible.set(!*cursor_visible.get());
             }
         },
@@ -186,7 +189,7 @@ pub fn Input<'a>(cx: Scope<'a, InputProps<'a>>) -> Element {
 
     render! {
       view {
-        class: "focus:border-2 border-1 p-5 min-w-100 border-gray-300 flex-col text-black focus:border-black bg-white {cx.props.class}",
+        class: "focus:border-2 border-1 p-5 min-w-100 border-gray-300 flex-col text-black focus:border-black bg-white cursor-text {cx.props.class}",
         tabindex: 0,
         oninput: handle_input,
         onclick: handle_click,

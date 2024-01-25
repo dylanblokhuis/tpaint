@@ -17,12 +17,20 @@ pub fn app(cx: Scope) -> Element {
 
             Image {
                 src: "./examples/example_ui/assets/feather.svg".to_string(),
-                class: "w-24 h-24"
+                class: "w-24 h-24 cursor-progress"
             }
 
             Image {
                 src: "./examples/example_ui/assets/placeholder.png".to_string(),
                 class: "w-300"
+            }
+
+            view {
+                class: "h-40 p-10 bg-red-900 text-white",
+                onclick: move |_| {
+                    println!("Clicked");
+                },
+                "I am a button"
             }
 
 
@@ -69,7 +77,7 @@ pub fn app(cx: Scope) -> Element {
 
             (0..10).map(|_| rsx! {
                 view {
-                    class: "w-full p-20 bg-blue-900",
+                    class: "w-full p-20 bg-blue-900 text-white",
                     "Lorem ipsum dolor sit amet"
                 }
             })

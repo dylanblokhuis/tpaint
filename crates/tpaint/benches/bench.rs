@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use criterion::black_box;
 use criterion::{criterion_group, criterion_main, Criterion};
 use dioxus::prelude::*;
-use tpaint::{prelude::*, RendererDescriptor};
 use tpaint::DomEventLoop;
+use tpaint::{prelude::*, RendererDescriptor};
 use winit::{event_loop::EventLoopBuilder, window::WindowBuilder};
 
 fn app(cx: Scope) -> Element {
@@ -37,13 +39,16 @@ pub fn apply_mutations(event_loop: &mut DomEventLoop) {
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let event_loop = EventLoopBuilder::with_user_event().build().unwrap();
-    let window = WindowBuilder::new()
-        .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
-        .build(&event_loop)
-        .unwrap();
+    let window = Arc::new(
+        WindowBuilder::new()
+            .with_inner_size(winit::dpi::LogicalSize::new(800, 600))
+            .build(&event_loop)
+            .unwrap(),
+    );
 
     let mut event_loop = DomEventLoop::spawn(
         app,
+        window.clone(),
         RendererDescriptor {
             font_definitions: Default::default(),
             pixels_per_point: window.scale_factor() as f32,
