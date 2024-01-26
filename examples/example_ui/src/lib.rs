@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
 use tpaint::{
-    components::{image::Image, input::Input},
+    components::{
+        image::Image,
+        input::Input,
+        motion::{Motion, Transition},
+    },
     prelude::*,
 };
 
@@ -31,6 +35,12 @@ pub fn app(cx: Scope) -> Element {
                     println!("Clicked");
                 },
                 "I am a button"
+            }
+
+            Motion {
+                class: "w-300 h-300 bg-red-500 text-white",
+                animate: "w-400 h-400 pl-10".to_string(),
+                transition: Transition::default()
             }
 
 

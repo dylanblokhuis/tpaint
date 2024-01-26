@@ -34,7 +34,7 @@ fn main() {
         .expect("set up the subscriber");
 
     SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
+        .with_level(log::LevelFilter::Warn)
         .init()
         .unwrap();
 
