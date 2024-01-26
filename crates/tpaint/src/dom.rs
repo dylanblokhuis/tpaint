@@ -40,7 +40,7 @@ impl Default for Computed {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tag {
     View,
-    Text
+    Text,
 }
 
 pub struct NodeContext {
@@ -245,11 +245,7 @@ impl Dom {
             } => {
                 let mut node = NodeContext {
                     parent_id,
-                    tag: if tag == "text" {
-                        Tag::Text
-                    } else {
-                        Tag::View
-                    },
+                    tag: if tag == "text" { Tag::Text } else { Tag::View },
                     attrs: attrs
                         .iter()
                         .filter_map(|val| {
@@ -374,7 +370,7 @@ impl Dom {
                         listeners: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
-                        tag: Tag::View
+                        tag: Tag::View,
                     };
 
                     let node_id = self
@@ -800,6 +796,18 @@ impl Dom {
 
                     false
                 });
+            }
+
+            // send drag event to the focused node
+            if let Some(focused) = self.state.focused {
+                self.send_event_to_element(
+                    focused.node_id,
+                    "drag",
+                    Arc::new(events::Event::Drag(events::DragEvent {
+                        state: EventState::new(self, focused.node_id),
+                    })),
+                    true,
+                );
             }
         }
 

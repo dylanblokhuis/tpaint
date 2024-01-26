@@ -34,6 +34,9 @@ pub fn app(cx: Scope) -> Element {
                 onclick: move |_| {
                     println!("Clicked");
                 },
+                ondrag: move |event| {
+                    println!("Dragged: {:?}", event);
+                },
                 "I am a button"
             }
 
