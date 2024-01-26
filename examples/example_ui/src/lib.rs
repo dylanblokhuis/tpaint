@@ -33,7 +33,6 @@ pub fn app(cx: Scope) -> Element {
                 "I am a button"
             }
 
-
             // view {
             //     class: "p-10 gap-x-40 shrink-0 flex-col",
 

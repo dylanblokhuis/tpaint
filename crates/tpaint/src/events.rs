@@ -9,7 +9,7 @@ use winit::{
     keyboard::{Key, PhysicalKey, SmolStr},
 };
 
-use crate::dom::DomState;
+use crate::dom::{Dom, DomState};
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -63,43 +63,18 @@ impl DomState {
 
 #[derive(Clone, Debug)]
 pub struct EventState {
-    node_id: NodeId,
+    rect: epaint::Rect,
     dom_state: DomState,
 }
 
 impl EventState {
-    pub fn new(node_id: NodeId, dom_state: DomState) -> Self {
-        Self { node_id, dom_state }
+    pub fn new(dom: &Dom, node_id: NodeId) -> Self {
+        let rect = dom.tree.get_node_context(node_id).unwrap().computed.rect;
+        Self { rect, dom_state: dom.state.clone() }
     }
-
-    // pub fn get_start_cursor(&self) -> Option<Cursor> {
-    //     self.dom_state.selection.iter().find_map(|range| {
-    //         // we search for parent since text cant get events
-    //         if range.parent_id == self.node_id {
-    //             Some(range.start_cursor)
-    //         } else {
-    //             None
-    //         }
-    //     })
-    // }
-
-    // pub fn get_end_cursor(&self) -> Option<Cursor> {
-    //     self.dom_state.selection.iter().find_map(|range| {
-    //         // we search for parent since text cant get events
-    //         if range.parent_id == self.node_id {
-    //             Some(range.end_cursor)
-    //         } else {
-    //             None
-    //         }
-    //     })
-    // }
 
     pub fn state(&self) -> &DomState {
         &self.dom_state
-    }
-
-    pub fn focused(&self) -> Option<crate::dom::FocusedNode> {
-        self.dom_state.focused
     }
 }
 

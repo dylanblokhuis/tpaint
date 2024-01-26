@@ -37,8 +37,14 @@ impl Default for Computed {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tag {
+    View,
+    Text
+}
+
 pub struct NodeContext {
-    pub tag: Arc<str>,
+    pub tag: Tag,
     pub parent_id: Option<NodeId>,
     pub attrs: FxHashMap<Arc<str>, Arc<str>>,
     pub listeners: FxHashSet<Arc<str>>,
@@ -49,7 +55,7 @@ pub struct NodeContext {
 
 impl NodeContext {
     pub fn get_text_cursor(&self, pick_position: Vec2) -> Option<Cursor> {
-        if self.tag != "text".into() {
+        if self.tag != Tag::Text {
             return None;
         }
 
@@ -117,7 +123,7 @@ impl Dom {
                 Style::default(),
                 NodeContext {
                     parent_id: None,
-                    tag: "view".into(),
+                    tag: Tag::View,
                     attrs: Default::default(),
                     styling: Tailwind::default(),
                     scroll: Default::default(),
@@ -239,7 +245,11 @@ impl Dom {
             } => {
                 let mut node = NodeContext {
                     parent_id,
-                    tag: self.get_tag_or_attr_key(tag),
+                    tag: if tag == "text" {
+                        Tag::Text
+                    } else {
+                        Tag::View
+                    },
                     attrs: attrs
                         .iter()
                         .filter_map(|val| {
@@ -273,7 +283,7 @@ impl Dom {
 
                 let mut node = NodeContext {
                     parent_id,
-                    tag: "text".into(),
+                    tag: Tag::Text,
                     attrs,
                     styling: Tailwind::default(),
                     scroll: Vec2::ZERO,
@@ -293,7 +303,7 @@ impl Dom {
                         Style::default(),
                         NodeContext {
                             parent_id,
-                            tag: "view".into(),
+                            tag: Tag::View,
                             attrs: FxHashMap::default(),
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
@@ -315,7 +325,7 @@ impl Dom {
                         Style::default(),
                         NodeContext {
                             parent_id,
-                            tag: "text".into(),
+                            tag: Tag::Text,
                             attrs,
                             styling: Tailwind::default(),
                             scroll: Vec2::ZERO,
@@ -364,7 +374,7 @@ impl Dom {
                         listeners: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
-                        tag: "placeholder".into(),
+                        tag: Tag::View
                     };
 
                     let node_id = self
@@ -430,7 +440,7 @@ impl Dom {
                         listeners: Default::default(),
                         scroll: Vec2::ZERO,
                         styling: Tailwind::default(),
-                        tag: "text".into(),
+                        tag: Tag::Text,
                     };
                     let node_id = self
                         .tree
@@ -764,7 +774,7 @@ impl Dom {
                             return false;
                         }
                     }
-                    if node.tag != "text".into() {
+                    if node.tag != Tag::Text {
                         return true;
                     }
                     if node.computed.rect.intersects(selection_rect) {
@@ -824,7 +834,7 @@ impl Dom {
                 return None;
             };
 
-            if node.tag == "text".into() {
+            if node.tag == Tag::Text {
                 focused_text_child = Some(*id);
             }
 
@@ -838,7 +848,7 @@ impl Dom {
                     *id,
                     "focus",
                     Arc::new(events::Event::Focus(events::FocusEvent {
-                        state: EventState::new(*id, self.state.clone()),
+                        state: EventState::new(self, *id),
                     })),
                     true,
                 );
@@ -863,14 +873,14 @@ impl Dom {
             };
 
             let pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-                state: EventState::new(focused.node_id, self.state.clone()),
+                state: EventState::new(self, focused.node_id),
                 button: button.clone(),
                 element_state: ElementState::Pressed,
                 text_cursor_position,
             }));
 
             let not_pressed_data = Arc::new(events::Event::Click(events::ClickEvent {
-                state: EventState::new(focused.node_id, self.state.clone()),
+                state: EventState::new(self, focused.node_id),
                 button: button.clone(),
                 element_state: ElementState::Released,
                 text_cursor_position,
@@ -1040,7 +1050,7 @@ impl Dom {
                 focused.node_id,
                 "input",
                 Arc::new(events::Event::Input(events::InputEvent {
-                    state: EventState::new(focused.node_id, self.state.clone()),
+                    state: EventState::new(self, focused.node_id),
                     logical_key: input.logical_key.clone(),
                     physical_key: input.physical_key,
                     text: input.text.clone(),
@@ -1056,7 +1066,7 @@ impl Dom {
                 winit::event::ElementState::Released => "keyup",
             },
             Arc::new(events::Event::Key(events::KeyInput {
-                state: EventState::new(focused.node_id, self.state.clone()),
+                state: EventState::new(self, focused.node_id),
                 element_state: input.state,
                 logical_key: input.logical_key.clone(),
                 physical_key: input.physical_key,
@@ -1129,7 +1139,7 @@ impl Dom {
                 *node_id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
-                    state: EventState::new(*node_id, self.state.clone()),
+                    state: EventState::new(self, *node_id),
                     rect,
                 })),
                 false,
@@ -1145,7 +1155,7 @@ impl Dom {
                 id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
-                    state: EventState::new(id, dom.state.clone()),
+                    state: EventState::new(dom, id),
                     rect,
                 })),
                 false,
@@ -1159,7 +1169,7 @@ impl Dom {
     }
 
     pub fn get_event_state(&mut self, node_id: NodeId) -> EventState {
-        EventState::new(node_id, self.state.clone())
+        EventState::new(self, node_id)
     }
 
     pub fn set_selection(
@@ -1171,7 +1181,7 @@ impl Dom {
     ) {
         let node = self.tree.get_node_context(node_id).unwrap();
 
-        if node.tag != "text".into() {
+        if node.tag != Tag::Text {
             log::warn!("set_selection called on non-text node");
             return;
         }
@@ -1191,7 +1201,7 @@ impl Dom {
             node.parent_id.unwrap(),
             "select",
             Arc::new(events::Event::Select(events::SelectEvent {
-                state: EventState::new(node_id, self.state.clone()),
+                state: EventState::new(self, node_id),
                 start_cursor,
                 end_cursor,
             })),
@@ -1214,7 +1224,7 @@ impl Dom {
                 prev_focused.node_id,
                 "blur",
                 Arc::new(events::Event::Blur(events::BlurEvent {
-                    state: EventState::new(prev_focused.node_id, self.state.clone()),
+                    state: EventState::new(self, prev_focused.node_id),
                 })),
                 true,
             );
@@ -1227,7 +1237,7 @@ impl Dom {
         // check if we're hovering over a node with tabindex or click listener
         if let Some(hovered) = self.state.hovered.last() {
             let node = self.tree.get_node_context(*hovered).unwrap();
-            let node = if node.tag == "text".into() {
+            let node = if node.tag == Tag::Text {
                 self.tree.get_node_context(node.parent_id.unwrap()).unwrap()
             } else {
                 node
@@ -1242,7 +1252,7 @@ impl Dom {
         if new_cursor_icon == CursorIcon::Default {
             if let Some(hovered) = self.state.hovered.last() {
                 let node = self.tree.get_node_context(*hovered).unwrap();
-                if node.tag == "text".into() {
+                if node.tag == Tag::Text {
                     new_cursor_icon = CursorIcon::Text;
                 }
             }
@@ -1251,7 +1261,7 @@ impl Dom {
         // if node itself has a class put on it, then we should set the cursor to that as highest priority
         if let Some(hovered) = self.state.hovered.last() {
             let node = self.tree.get_node_context(*hovered).unwrap();
-            let node = if node.tag == "text".into() {
+            let node = if node.tag == Tag::Text {
                 self.tree.get_node_context(node.parent_id.unwrap()).unwrap()
             } else {
                 node
