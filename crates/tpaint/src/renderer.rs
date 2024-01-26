@@ -14,7 +14,7 @@ use taffy::{AvailableSpace, Layout, NodeId, Overflow, Size};
 use winit::dpi::PhysicalSize;
 
 use crate::{
-    dom::{CursorState, Dom, NodeContext, SelectedNode},
+    dom::{CursorState, Dom, NodeContext, SelectedNode, Tag},
     tailwind::{StyleState, TailwindCache},
 };
 
@@ -130,8 +130,8 @@ impl Renderer {
                 }
                 node.styling.cache = styling_hash;
 
-                let style = match &(*node.tag) {
-                    "view" => {
+                let style = match node.tag {
+                    Tag::View => {
                         if let Some(src) = node.attrs.get("src") {
                             node.styling.set_texture(src);
                         }
@@ -139,7 +139,7 @@ impl Renderer {
                         node.styling
                             .set_styling(class.unwrap_or(&"".into()), &style_state)
                     }
-                    "text" => {
+                    Tag::Text => {
                         let [node, parent] = dom
                             .tree
                             .get_disjoint_node_context_mut([id, parent.unwrap()])
@@ -152,8 +152,6 @@ impl Renderer {
                         node.styling.text = parent.styling.text.clone();
                         style
                     }
-
-                    _ => unreachable!(),
                 };
 
                 let old_style = dom.tree.style(id).unwrap();
@@ -182,8 +180,8 @@ impl Renderer {
 
             match node_context {
                 None => Size::ZERO,
-                Some(node_context) => match &*node_context.tag {
-                    "view" => {
+                Some(node_context) => match node_context.tag {
+                    Tag::View => {
                         let Some(texture_id) = node_context.styling.texture_id else {
                             return Size::ZERO;
                         };
@@ -208,7 +206,7 @@ impl Renderer {
                             },
                         }
                     }
-                    "text" => {
+                    Tag::Text => {
                         let galley = if let AvailableSpace::Definite(space) = available_space.width
                         {
                             fonts.layout(
@@ -241,7 +239,6 @@ impl Renderer {
                             height: size.y,
                         }
                     }
-                    _ => Size::ZERO,
                 },
             }
         }
@@ -426,8 +423,8 @@ impl Renderer {
                     _ => {}
                 }
 
-                match &(*node.tag) {
-                    "text" => {
+                match node.tag {
+                    Tag::Text => {
                         let shape = Shape::galley(
                             node.computed.rect.min,
                             node.computed
@@ -476,7 +473,7 @@ impl Renderer {
                             shape,
                         });
                     }
-                    _ => {
+                    Tag::View => {
                         self.shapes.push(self.get_rect_shape(node, clip));
 
                         let are_both_scrollbars_visible = style.overflow.x == Overflow::Scroll
