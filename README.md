@@ -1,5 +1,5 @@
 # tpaint
-Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
+Compose your UI with Dioxus (React-inspired) and Tailwind ergonomics and bring your own rendering backend to paint the triangles to the screen.
 
 ### Currently supports:
 
@@ -12,18 +12,41 @@ Dioxus (GUI) + Taffy (Layout) + Tailwind (Styling) + epaint (Rendering)
 - Scrolling
 - Async images and vector graphics through ``Image`` component, with ``src`` attribute.
 - Grid and flexbox (through Taffy)
-  
-### What needs implementing:
-- Text selection and copying
-- Links
-- Clicking the scrollbars
-- many more..
-
+- Text selection
+- Cursors with e.g. ``cursor-progress``
+- Input field
+- Custom fonts
 
 ### Examples
-Due to the nature of egui being ported to multiple backends already, thanks to all the egui contributors it was no effort to also add support for these in tpaint. 
+tpaint uses egui's rasterization backend, so adding your backend is trivial!
+
+Current examples include:
 
 - glow (OpenGL)
 - wgpu
 
-You can add your own backend easily!
+
+### Element
+``view`` is the only element you can compose your UI's with, it supports various events:
+
+- onfocus
+- onblur
+- ondrag
+- oninput
+- onkeydown
+- onkeyup
+- onclick
+- onmousemove
+- onlayout (``whenever the layout engine has re-calculated the layout``)
+- onselect
+
+
+```rust
+view {
+    class: "h-40 p-10 bg-red-900 text-white",
+    onclick: move |_| {
+        println!("Clicked");
+    },
+    "I am a button"
+}
+```
