@@ -1143,12 +1143,14 @@ impl Dom {
     pub fn on_layout_changed(&mut self, nodes: &[NodeId]) {
         for node_id in nodes {
             let rect = self.tree.get_node_context(*node_id).unwrap().computed.rect;
+            let layout = self.tree.layout(*node_id).unwrap().clone();
             self.send_event_to_element(
                 *node_id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
                     state: EventState::new(self, *node_id),
                     rect,
+                    layout,
                 })),
                 false,
             );
@@ -1159,12 +1161,14 @@ impl Dom {
         // send all nodes a layout event
         self.traverse_tree(self.get_root_id(), &mut |dom, id| {
             let rect = dom.tree.get_node_context(id).unwrap().computed.rect;
+            let layout = dom.tree.layout(id).unwrap().clone();
             dom.send_event_to_element(
                 id,
                 "layout",
                 Arc::new(events::Event::Layout(LayoutEvent {
                     state: EventState::new(dom, id),
                     rect,
+                    layout,
                 })),
                 false,
             );
@@ -1244,7 +1248,9 @@ impl Dom {
 
         // check if we're hovering over a node with tabindex or click listener
         if let Some(hovered) = self.state.hovered.last() {
-            let node = self.tree.get_node_context(*hovered).unwrap();
+            let Some(node) = self.tree.get_node_context(*hovered) else {
+                return;
+            };
             let node = if node.tag == Tag::Text {
                 self.tree.get_node_context(node.parent_id.unwrap()).unwrap()
             } else {

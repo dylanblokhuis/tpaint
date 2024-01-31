@@ -56,7 +56,7 @@ fn main() {
     );
 
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
-    let surface = unsafe { instance.create_surface(&window).unwrap() };
+    let surface = instance.create_surface(window.clone()).unwrap();
 
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -67,8 +67,8 @@ fn main() {
 
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
-            features: wgpu::Features::default(),
-            limits: wgpu::Limits::default(),
+            required_features: wgpu::Features::default(),
+            required_limits: wgpu::Limits::default(),
             label: None,
         },
         None,
@@ -88,6 +88,7 @@ fn main() {
         present_mode: wgpu::PresentMode::Fifo,
         alpha_mode: swapchain_capabilities.alpha_modes[0],
         view_formats: vec![],
+        desired_maximum_frame_latency: 2,
     };
     surface.configure(&device, &config);
 

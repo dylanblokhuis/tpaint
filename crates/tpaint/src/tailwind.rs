@@ -142,21 +142,41 @@ impl Tailwind {
         if class == "flex-col" {
             style.display = Display::Flex;
             style.flex_direction = FlexDirection::Column;
-        } else if class == "flex-row" {
+        }
+
+        if class == "flex-row" {
             style.display = Display::Flex;
             style.flex_direction = FlexDirection::Row;
         }
 
-        // if class == "grid" {
-        //     style.display = Display::Grid;
-        // }
+        if class == "grid" {
+            style.display = Display::Grid;
+        }
 
-        // if let Some(class) = class.strip_prefix("grid-cols-") {
-        //     style.grid_template_columns = Vec::new();
-        //     for _ in 0..class.parse::<usize>().unwrap_or(0) {
-        //         style.grid_template_columns.push(fr(1.0));
-        //     }
-        // }
+        if let Some(class) = class.strip_prefix("grid-cols-") {
+            style.grid_template_columns = Vec::new();
+            for _ in 0..class.parse::<usize>().unwrap_or(0) {
+                style.grid_template_columns.push(fr(1.0));
+            }
+        }
+
+        if let Some(class) = class.strip_prefix("col-span-") {
+            let span = class.parse::<u16>().unwrap_or(0);
+
+            style.grid_column = Line {
+                start: GridPlacement::from_span(span),
+                end: GridPlacement::from_span(span),
+            };
+        }
+
+        if let Some(class) = class.strip_prefix("row-span-") {
+            let span = class.parse::<u16>().unwrap_or(0);
+
+            style.grid_row = Line {
+                start: GridPlacement::from_span(span),
+                end: GridPlacement::from_span(span),
+            };
+        }
 
         if let Some(class) = class.strip_prefix("flex-") {
             match class {
@@ -395,7 +415,7 @@ impl Tailwind {
             }
         }
 
-        if let Some(class) = class.strip_prefix("align-self-") {
+        if let Some(class) = class.strip_prefix("self-") {
             match class {
                 "start" => style.align_self = Some(AlignItems::FlexStart),
                 "end" => style.align_self = Some(AlignItems::FlexEnd),

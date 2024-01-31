@@ -47,6 +47,21 @@ pub fn app(cx: Scope) -> Element {
             }
 
 
+            view {
+                class: "grid grid-cols-3 w-full",
+
+                view {
+                    class: "h-300 bg-red-500 col-span-2",
+                    "1"
+                },
+
+                view {
+                    class: "h-300 bg-indigo-500",
+                    "2"
+                },
+            }
+
+
             // view {
             //     class: "p-10 gap-x-40 shrink-0 flex-col",
 

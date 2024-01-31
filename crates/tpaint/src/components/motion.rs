@@ -1,8 +1,10 @@
 use std::default;
 
 use dioxus::prelude::*;
+use epaint::Rect;
+use taffy::Layout;
 
-use crate::prelude::*;
+use crate::prelude::{dioxus_elements::events::onlayout, *};
 
 #[derive(PartialEq, Clone, Debug, Default)]
 enum TransitionEasing {
@@ -46,41 +48,34 @@ struct StylePiece {
 
 pub fn Motion<'a>(cx: Scope<'a, Props>) -> Element<'a> {
     // let class = use_state(cx, || cx.props.class);
+    let current_rect = use_state(cx, || (Rect::ZERO, Layout::new()));
 
     use_effect(cx, (&cx.props.animate,), |(animate,)| {
         //
+        to_owned![current_rect];
         async move {
             // extract all numbers that are prefixed by a '-', example: "w-400 h-400 left-100"
-            let words = animate.split_whitespace();
+            let classes = animate.split_whitespace();
+            let start_val = current_rect.get().clone();
 
-            // Initialize a vector to hold the extracted numbers
-            let mut style_pieces = Vec::new();
-
-            // Iterate through each word
-            for word in words {
-                // Check if the word contains a '-' followed by digits
-                if let Some(index) = word.find('-') {
-                    // Extract the substring after the '-'
-                    let number_str = &word[index + 1..];
-
-                    // Parse the substring into a number and add it to the vector
-                    if let Ok(number) = number_str.parse::<f32>() {
-                        style_pieces.push(StylePiece {
-                            property: word[..index].to_string(),
-                            value: number,
-                        });
-                    }
-                }
+            let height = start_val.1.size.height;
+            for class in classes {
+                // we do width, height, padding, border, margin, left, right, top, bottom
+                if let Some(property) = class.strip_prefix("h-") {}
             }
 
-            // hmm this is hard to interpolate, we need the size of the element?
-            println!("style_pieces: {:?}", style_pieces);
+            // we interpolate from the start value to the end value
+            // we need to know the end value
         }
     });
 
     render! {
         view {
             class: "{cx.props.class}",
+            onlayout: |event| {
+                println!("layout: {:?}", event);
+                current_rect.set((event.rect, event.layout));
+            },
 
             "motion!"
         }

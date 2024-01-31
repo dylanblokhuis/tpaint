@@ -3,7 +3,7 @@ use std::{any::Any, rc::Rc, sync::Arc};
 use dioxus::core::ElementId;
 
 use epaint::text::cursor::Cursor;
-use taffy::NodeId;
+use taffy::{Layout, NodeId};
 use winit::{
     event::{ElementState, Modifiers, MouseButton},
     keyboard::{Key, PhysicalKey, SmolStr},
@@ -63,14 +63,16 @@ impl DomState {
 
 #[derive(Clone, Debug)]
 pub struct EventState {
-    rect: epaint::Rect,
     dom_state: DomState,
 }
 
 impl EventState {
     pub fn new(dom: &Dom, node_id: NodeId) -> Self {
-        let rect = dom.tree.get_node_context(node_id).unwrap().computed.rect;
-        Self { rect, dom_state: dom.state.clone() }
+        // let rect = dom.tree.get_node_context(node_id).unwrap().computed.rect;
+        Self {
+            // rect,
+            dom_state: dom.state.clone(),
+        }
     }
 
     pub fn state(&self) -> &DomState {
@@ -134,7 +136,10 @@ pub struct MouseMoveEvent {
 #[derive(Clone, Debug)]
 pub struct LayoutEvent {
     pub state: EventState,
+    /// The absolute position of the element.
     pub rect: epaint::Rect,
+    /// Computed style of the element.
+    pub layout: Layout,
 }
 
 #[derive(Clone, Debug)]
