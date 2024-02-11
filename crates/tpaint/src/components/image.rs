@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use crate::{event_loop::DomContext, prelude::*};
-use dioxus::prelude::*;
 use epaint::{textures::TextureOptions, ColorImage, TextureId};
 use resvg::usvg::TreeParsing;
 

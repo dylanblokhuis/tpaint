@@ -58,6 +58,7 @@ macro_rules! impl_event {
 pub use event_loop::DomEventLoop;
 
 pub mod prelude {
+    pub use dioxus::prelude::*;
 
     #[cfg(feature = "hot-reload")]
     pub mod dioxus_hot_reload {
@@ -90,6 +91,7 @@ pub mod prelude {
         }
 
         pub mod events {
+
             impl_event! [
                 crate::events::ClickEvent;
                 onclick

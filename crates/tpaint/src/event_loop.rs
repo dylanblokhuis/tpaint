@@ -1,4 +1,4 @@
-use std::{sync::{Arc, Mutex}, fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref, path::Path, sync::{Arc, Mutex}};
 
 use dioxus::prelude::{ScopeId, VirtualDom, Scope, Element};
 use epaint::{textures::TexturesDelta, ClippedPrimitive, TextureManager};
@@ -15,6 +15,8 @@ pub struct DomEventLoop {
     pub dom: Arc<Mutex<Dom>>,
     pub update_scope_sender: tokio::sync::mpsc::UnboundedSender<ScopeId>,
     pub renderer: Renderer,
+    #[cfg(feature = "libloading")]
+    pub lib: Option<libloading::Library>,
 }
 
 #[derive(Clone)]
@@ -106,6 +108,92 @@ impl DomEventLoop {
             dom,
             update_scope_sender,
             renderer,
+            lib: None,
+        }
+    }
+
+    pub unsafe fn spawn_loaded_lib<E: Debug + Send + Sync + Clone, T: Clone + 'static + Send + Sync>(so_path: &'static str, window: Arc<Window>, renderer_desc: RendererDescriptor, event_proxy: EventLoopProxy<E>, redraw_event_to_send: E, root_context: T) -> DomEventLoop {
+        let (dom_event_sender, mut dom_event_receiver) = tokio::sync::mpsc::unbounded_channel::<DomEvent>();
+      
+        #[cfg(all(feature = "hot-reload", debug_assertions))]
+        let (hot_reload_tx, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<dioxus_hot_reload::HotReloadMsg>();
+        #[cfg(not(all(feature = "hot-reload", debug_assertions)))]
+        let (_, mut hot_reload_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+    
+        let (update_scope_sender, mut update_scope_receiver) = tokio::sync::mpsc::unbounded_channel::<ScopeId>();
+        
+        #[cfg(all(feature = "hot-reload", debug_assertions))]
+        dioxus_hot_reload::connect(move |msg| {
+            let _ = hot_reload_tx.send(msg);
+        });
+        let renderer = Renderer::new(renderer_desc);
+        let dom_context = DomContext {
+            texture_manager: renderer.tex_manager.clone(),
+            window: window.clone(),
+            #[cfg(feature = "images")]
+            client: reqwest::Client::new(),
+            event_sender: dom_event_sender.clone(),
+            current_cursor_icon: Default::default(),
+        };
+        let dom = Arc::new(Mutex::new(Dom::new(dom_context.clone())));
+
+        std::thread::spawn({
+            let dom = dom.clone();
+            let context = dom_context.clone();
+            // let func = lib.clone();
+            move || {
+                let lib = libloading::Library::new(so_path).unwrap();
+                let func: libloading::Symbol<fn(Scope) -> Element> = unsafe { lib.get(b"app").unwrap() };
+
+                let mut vdom = VirtualDom::new(*func).with_root_context(root_context).with_root_context(context);
+                let mutations = vdom.rebuild();
+                dom.lock().unwrap().apply_mutations(mutations);
+                event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
+    
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+                    .block_on(async move {
+                        loop {
+                            tokio::select! {
+                                _ = vdom.wait_for_work() => {},
+                                Some(_msg) = hot_reload_rx.recv() => {
+                                    #[cfg(all(feature = "hot-reload", debug_assertions))]
+                                    {
+                                        match _msg {
+                                            dioxus_hot_reload::HotReloadMsg::UpdateTemplate(template) => {
+                                                vdom.replace_template(template);
+                                            }
+                                            dioxus_hot_reload::HotReloadMsg::Shutdown => {
+                                                std::process::exit(0);
+                                            }                                        
+                                        }
+                                    }
+                                }
+                                Some(event) = dom_event_receiver.recv() => {
+                                    let DomEvent { name, data, element_id, bubbles } = event;
+                                    vdom.handle_event(&name, data.deref().clone().into_any(), element_id, bubbles);
+                                }
+                                Some(scope_id) = update_scope_receiver.recv() => {
+                                    vdom.get_scope(scope_id).unwrap().needs_update();
+                                }
+                            }
+        
+                            let mutations = vdom.render_immediate();
+                            dom.lock().unwrap().apply_mutations(mutations);
+        
+                            event_proxy.send_event(redraw_event_to_send.clone()).unwrap();
+                        }
+                    });
+            }
+        });
+    
+        DomEventLoop {
+            dom,
+            update_scope_sender,
+            renderer,
+            lib: None
         }
     }
 

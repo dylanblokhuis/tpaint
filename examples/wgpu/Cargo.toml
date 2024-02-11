@@ -6,12 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.4.3", default-features = false, features = [
-    "macro",
-    "hooks",
-] }
 tpaint = { path = "../../crates/tpaint" }
 tpaint_wgpu = { path = "../../crates/tpaint_wgpu" }
+dioxus = { workspace = true }
 example_ui = { path = "../example_ui" }
 wgpu = "0.19"
 log = "0.4"

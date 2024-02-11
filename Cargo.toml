@@ -8,3 +8,10 @@ members = [
 
     "examples/*",
 ]
+
+[workspace.dependencies]
+dioxus = { version = "0.4.3", default-features = false, features = [
+    "macro",
+    "hooks",
+] }
+dioxus-hot-reload = { version = "0.4.3", features = ["file_watcher"] }

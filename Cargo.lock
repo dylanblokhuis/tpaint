@@ -1190,7 +1190,6 @@ name = "example_beuk"
 version = "0.1.0"
 dependencies = [
  "beuk",
- "dioxus",
  "example_ui",
  "log",
  "raw-window-handle 0.5.2",
@@ -3819,6 +3818,7 @@ dependencies = [
  "epaint",
  "image",
  "lazy_static",
+ "libloading 0.8.1",
  "log",
  "reqwest",
  "resvg",

@@ -5,7 +5,6 @@ use crate::{
     prelude::*,
 };
 use copypasta::{ClipboardContext, ClipboardProvider};
-use dioxus::prelude::*;
 
 #[derive(Props)]
 pub struct InputProps<'a> {
